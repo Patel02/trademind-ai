@@ -40,6 +40,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check active session on mount
     const initSession = async () => {
       try {
+        if (import.meta.env.DEV && localStorage.getItem("bypass_auth") === "true") {
+          const mockUser = {
+            id: "mock-user-id",
+            email: "mock.trader@trademind.ai",
+          } as any;
+          const mockSession = {
+            user: mockUser,
+            access_token: "mock-token",
+          } as any;
+          setSession(mockSession);
+          setUser(mockUser);
+          setProfile({
+            id: "mock-user-id",
+            email: "mock.trader@trademind.ai",
+            full_name: "Mock Trader",
+            avatar_url: null,
+            role: "trader",
+            subscription_plan: "premium",
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } as UserProfile);
+          setLoading(false);
+          return;
+        }
+
         const activeSession = await authService.getSession();
         setSession(activeSession);
         setUser(activeSession?.user ?? null);
@@ -58,6 +83,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, newSession) => {
+        if (import.meta.env.DEV && localStorage.getItem("bypass_auth") === "true") {
+          setLoading(false);
+          return;
+        }
         setSession(newSession);
         setUser(newSession?.user ?? null);
 
@@ -79,6 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setLoading(true);
     try {
+      localStorage.removeItem("bypass_auth");
       await authService.logout();
       setUser(null);
       setSession(null);

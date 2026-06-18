@@ -7,6 +7,7 @@ import DashboardLayout from "./layouts/DashboardLayout";
 // Page Imports
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
+import Analysis from "./pages/analysis/Analysis";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import Dashboard from "./pages/dashboard/Dashboard";
 import Markets from "./pages/markets/Markets";
@@ -31,12 +32,7 @@ export const App: React.FC = () => {
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/markets" element={<Markets />} />
-              <Route path="/analysis" element={
-                <div style={{ padding: "2rem" }}>
-                  <h1 style={{ fontSize: "28px", marginBottom: "1rem" }}>AI Analysis</h1>
-                  <p style={{ color: "var(--text-secondary)" }}>AI-powered stock analysis model metrics, valuation estimates, and sector heatmaps.</p>
-                </div>
-              } />
+              <Route path="/analysis" element={<Analysis />} />
               <Route path="/signals" element={<Signals />} />
               <Route path="/news" element={<News />} />
               <Route path="/watchlist" element={<Watchlist />} />
