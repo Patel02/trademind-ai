@@ -1,159 +1,288 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../../app/providers/AuthProvider";
 import { authService } from "../../services/auth.service";
-import { LogOut, User as UserIcon, Sparkles, TrendingUp, ShieldAlert, Award } from "lucide-react";
+import Card from "../../components/ui/Card";
+import Badge from "../../components/ui/Badge";
+import Loader from "../../components/ui/Loader";
+import { motion } from "framer-motion";
+import { 
+  TrendingUp, 
+  TrendingDown, 
+  BrainCircuit, 
+  Activity, 
+  Sparkles, 
+  Layers, 
+  Newspaper, 
+  Eye, 
+  Check 
+} from "lucide-react";
 
 export const Dashboard: React.FC = () => {
-  const { user, profile, logout } = useAuth();
-  const [isSavingConsent, setIsSavingConsent] = useState(false);
+  const { user, profile } = useAuth();
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Sync pending consents from localStorage once user is logged in
+  // Sync consents from localStorage if any
   useEffect(() => {
     if (user) {
       const key = `pending_consent_${user.id}`;
       const pending = localStorage.getItem(key);
       if (pending) {
-        setIsSavingConsent(true);
         try {
           const { termsAccepted, riskAccepted } = JSON.parse(pending);
-          authService
-            .saveConsents(user.id, termsAccepted, riskAccepted)
-            .then(() => {
-              console.log("Saved pending consents successfully.");
-              localStorage.removeItem(key);
-            })
-            .catch((err) => {
-              console.error("Error saving pending consents:", err);
-            })
-            .finally(() => {
-              setIsSavingConsent(false);
-            });
+          authService.saveConsents(user.id, termsAccepted, riskAccepted).then(() => {
+            localStorage.removeItem(key);
+          });
         } catch (e) {
-          console.error("Failed to parse local consents:", e);
-          setIsSavingConsent(false);
+          console.error(e);
         }
       }
     }
   }, [user]);
 
-  const handleLogout = async () => {
-    try {
-      await logout();
-    } catch (err) {
-      console.error("Failed to log out:", err);
-    }
+  // Simulate premium content load delay
+  useEffect(() => {
+    const timer = setTimeout(() => setIsLoading(false), 900);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const containerVariants = {
+    hidden: {},
+    visible: {
+      transition: {
+        staggerChildren: 0.08,
+      },
+    },
   };
 
+  if (isLoading) {
+    return (
+      <div style={{ padding: "2rem" }}>
+        {/* Top welcome loading */}
+        <Loader type="line" count={1} height="36px" className="mb-2" />
+        <Loader type="line" count={1} height="18px" className="mb-8" style={{ width: "60%" }} />
+
+        {/* 4 columns layout skeleton */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.5rem", marginBottom: "2rem" }}>
+          <Loader type="card" count={1} />
+          <Loader type="card" count={1} />
+          <Loader type="card" count={1} />
+          <Loader type="card" count={1} />
+        </div>
+
+        {/* 2 columns layout skeleton */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))", gap: "1.5rem" }}>
+          <Loader type="card" count={1} height="320px" />
+          <Loader type="card" count={1} height="320px" />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="dashboard-container">
-      {/* Header */}
-      <header className="dashboard-header">
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <div style={{ background: "#10b981", color: "#000", borderRadius: "8px", width: "32px", height: "32px", display: "flex", justifyContent: "center", alignItems: "center", fontWeight: "bold" }}>M</div>
-          <span style={{ fontSize: "18px", fontWeight: "700", letterSpacing: "-0.5px" }}>TradeMind AI</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <div style={{ background: "#1e293b", padding: "6px", borderRadius: "50%", display: "flex" }}>
-              <UserIcon size={16} color="#10b981" />
-            </div>
-            <span style={{ fontSize: "14px", color: "#f3f4f6" }}>
-              {profile?.full_name || user?.email}
-            </span>
-          </div>
-          <button 
-            onClick={handleLogout}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              background: "transparent",
-              border: "1px solid #ef4444",
-              color: "#ef4444",
-              padding: "6px 12px",
-              borderRadius: "6px",
-              cursor: "pointer",
-              fontSize: "13px",
-              fontWeight: "600",
-              transition: "all 0.2s"
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(239, 68, 68, 0.1)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "transparent";
-            }}
-          >
-            <LogOut size={14} />
-            <span>Logout</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Body */}
-      <main className="dashboard-main">
-        {/* Welcome Section */}
-        <div style={{ marginBottom: "2.5rem" }}>
-          <h1 style={{ fontSize: "32px", fontWeight: "700", margin: "0 0 0.5rem", color: "#fff", display: "flex", alignItems: "center", gap: "10px" }}>
-            Welcome to TradeMind AI <Sparkles size={24} color="#f59e0b" />
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="dashboard-view-content"
+      style={{ padding: "2rem" }}
+    >
+      {/* Top Banner Row */}
+      <div className="welcome-banner-row">
+        <div>
+          <h1 className="dashboard-title">
+            Hey, {profile?.full_name || user?.email?.split("@")[0]} <Sparkles size={20} className="text-warning-icon" />
           </h1>
-          <p style={{ color: "#9ca3af", fontSize: "16px", margin: 0 }}>
-            Your premium environment for intelligent trading insights, signals, and automated analysis is fully configured.
-          </p>
+          <p className="dashboard-subtitle">Here is your market summary and trading signals for today.</p>
         </div>
+        <div className="pulse-tag">
+          <span className="pulse-dot"></span>
+          <span className="pulse-text">Live market feed</span>
+        </div>
+      </div>
 
-        {/* Dashboard Grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem" }}>
-          {/* Profile Card */}
-          <div style={{ background: "rgba(18, 22, 26, 0.85)", border: "1px solid var(--border-dark)", borderRadius: "12px", padding: "2rem" }}>
-            <h2 style={{ fontSize: "18px", fontWeight: "600", margin: "0 0 1.5rem", color: "#10b981", display: "flex", alignItems: "center", gap: "8px" }}>
-              <UserIcon size={18} /> User Profile Account
-            </h2>
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #1e242b", paddingBottom: "0.5rem" }}>
-                <span style={{ color: "#9ca3af", fontSize: "14px" }}>Full Name</span>
-                <span style={{ color: "#f3f4f6", fontSize: "14px", fontWeight: "500" }}>{profile?.full_name || "N/A"}</span>
+      {/* Primary Metrics Row (Grid 4 column layout) */}
+      <div className="metrics-grid">
+        {/* Widget 1: AI Market Pulse */}
+        <Card 
+          title="AI Market Pulse" 
+          extra={<BrainCircuit size={18} color="#10b981" />}
+          subtitle="Real-time sentiment score"
+        >
+          <div className="ai-pulse-body">
+            <div className="ai-pulse-value">
+              <span className="pulse-val-num">82%</span>
+              <Badge sentiment="bullish">Strong Bullish</Badge>
+            </div>
+            <div className="progress-bar-container">
+              <div className="progress-bar-fill" style={{ width: "82%" }}></div>
+            </div>
+            <p className="widget-small-text">Based on 14 major indicators and news feeds.</p>
+          </div>
+        </Card>
+
+        {/* Widget 2: Market Overview (Indices) */}
+        <Card title="Market Indices" extra={<Activity size={18} color="#3b82f6" />}>
+          <div className="indices-list">
+            <div className="index-row">
+              <span className="index-name">NIFTY 50</span>
+              <div className="index-price-group">
+                <span className="index-price">23,465.60</span>
+                <span className="index-change pos">
+                  <TrendingUp size={12} /> +1.24%
+                </span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #1e242b", paddingBottom: "0.5rem" }}>
-                <span style={{ color: "#9ca3af", fontSize: "14px" }}>Email Address</span>
-                <span style={{ color: "#f3f4f6", fontSize: "14px", fontWeight: "500" }}>{user?.email}</span>
+            </div>
+            <div className="index-row">
+              <span className="index-name">BANK NIFTY</span>
+              <div className="index-price-group">
+                <span className="index-price">49,852.10</span>
+                <span className="index-change pos">
+                  <TrendingUp size={12} /> +0.94%
+                </span>
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #1e242b", paddingBottom: "0.5rem" }}>
-                <span style={{ color: "#9ca3af", fontSize: "14px" }}>Role</span>
-                <span style={{ color: "#10b981", fontSize: "14px", fontWeight: "600", textTransform: "capitalize" }}>{profile?.role || "User"}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ color: "#9ca3af", fontSize: "14px" }}>Subscription Plan</span>
-                <span style={{ color: "#f59e0b", fontSize: "14px", fontWeight: "600", textTransform: "capitalize", display: "flex", alignItems: "center", gap: "4px" }}>
-                  <Award size={14} /> {profile?.subscription_plan || "Free"}
+            </div>
+            <div className="index-row">
+              <span className="index-name">SENSEX</span>
+              <div className="index-price-group">
+                <span className="index-price">77,150.30</span>
+                <span className="index-change neg">
+                  <TrendingDown size={12} /> -0.12%
                 </span>
               </div>
             </div>
           </div>
+        </Card>
 
-          {/* Account Status */}
-          <div style={{ background: "rgba(18, 22, 26, 0.85)", border: "1px solid var(--border-dark)", borderRadius: "12px", padding: "2rem" }}>
-            <h2 style={{ fontSize: "18px", fontWeight: "600", margin: "0 0 1.5rem", color: "#10b981", display: "flex", alignItems: "center", gap: "8px" }}>
-              <TrendingUp size={18} /> Active Environment
-            </h2>
-            <p style={{ color: "#9ca3af", fontSize: "14px", lineHeight: "1.6", margin: "0 0 1rem" }}>
-              Your account has successfully established connection with our PostgreSQL Database. All transaction operations and logs are encrypted under Row Level Security.
-            </p>
-            {isSavingConsent ? (
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#f59e0b", fontSize: "13px" }}>
-                <div style={{ width: "14px", height: "14px", border: "2px solid #f59e0b", borderTop: "2px solid transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                <span>Recording user consents...</span>
+        {/* Widget 3: Top Opportunities */}
+        <Card title="Top Opportunities" extra={<Layers size={18} color="#f59e0b" />}>
+          <div className="indices-list">
+            <div className="opportunity-row">
+              <span className="opportunity-ticker">TCS</span>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <span className="opportunity-price">₹3,845.20</span>
+                <Badge variant="success">BUY</Badge>
               </div>
-            ) : (
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#10b981", fontSize: "13px" }}>
-                <ShieldAlert size={16} />
-                <span>Row Level Security (RLS) Enforced</span>
+            </div>
+            <div className="opportunity-row">
+              <span className="opportunity-ticker">RELIANCE</span>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <span className="opportunity-price">₹2,950.40</span>
+                <Badge variant="success">STRONG BUY</Badge>
               </div>
-            )}
+            </div>
+            <div className="opportunity-row">
+              <span className="opportunity-ticker">HDFCBANK</span>
+              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <span className="opportunity-price">₹1,560.10</span>
+                <Badge variant="warning">HOLD</Badge>
+              </div>
+            </div>
           </div>
-        </div>
-      </main>
-    </div>
+        </Card>
+
+        {/* Account Plan summary */}
+        <Card title="Account Info" extra={<Sparkles size={18} color="#aa3bff" />}>
+          <div className="account-info-widget">
+            <div className="plan-badge-container">
+              <span className="plan-label">ACTIVE PLAN</span>
+              <span className="plan-title">{profile?.subscription_plan?.toUpperCase() || "FREE PLAN"}</span>
+            </div>
+            <div className="account-meta">
+              <div className="meta-row">
+                <span>Account Role</span>
+                <span style={{ textTransform: "capitalize", fontWeight: "600" }}>{profile?.role || "User"}</span>
+              </div>
+              <div className="meta-row">
+                <span>Consents Sync</span>
+                <span style={{ color: "#10b981", display: "flex", alignItems: "center", gap: "4px" }}>
+                  <Check size={14} /> Synchronized
+                </span>
+              </div>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Secondary Row (Grid 2 column layout) */}
+      <div className="secondary-grid">
+        {/* Widget 4: News Preview */}
+        <Card 
+          title="Market News Summary" 
+          extra={<Newspaper size={18} color="#64748b" />}
+          subtitle="Top financial events today"
+        >
+          <div className="news-summary-list">
+            <div className="news-item">
+              <span className="news-time">10 mins ago</span>
+              <h4 className="news-item-title">RBI holds repo rate unchanged at 6.5%, maintains 'withdrawal of accommodation' stance.</h4>
+            </div>
+            <div className="news-item">
+              <span className="news-time">45 mins ago</span>
+              <h4 className="news-item-title">US tech indices rally as federal inflation metrics print cooler than expected figures.</h4>
+            </div>
+            <div className="news-item">
+              <span className="news-time">2 hours ago</span>
+              <h4 className="news-item-title">TCS announces major cloud partnership with European retail giant, stock jumps 2.3%.</h4>
+            </div>
+            <div className="news-item">
+              <span className="news-time">4 hours ago</span>
+              <h4 className="news-item-title">Gold rates approach record highs amidst geopolitical uncertainty and dollar consolidation.</h4>
+            </div>
+            <div className="news-item">
+              <span className="news-time">6 hours ago</span>
+              <h4 className="news-item-title">Crude oil steady at $82/bbl following OPEC production cuts renewal guidelines.</h4>
+            </div>
+          </div>
+        </Card>
+
+        {/* Widget 5: Watchlist Preview */}
+        <Card 
+          title="My Watchlist" 
+          extra={<Eye size={18} color="#aa3bff" />}
+          subtitle="Quick rates overview"
+        >
+          <div className="watchlist-table-preview">
+            <div className="watchlist-header-row">
+              <span>TICKER</span>
+              <span style={{ textAlign: "right" }}>PRICE</span>
+              <span style={{ textAlign: "right" }}>CHANGE</span>
+            </div>
+            <div className="watchlist-row-item">
+              <div className="ticker-info">
+                <span className="ticker-symbol">TCS</span>
+                <span className="ticker-fullname">Tata Consult...</span>
+              </div>
+              <span className="ticker-rate">₹3,845.20</span>
+              <span className="ticker-pct pos">+2.45%</span>
+            </div>
+            <div className="watchlist-row-item">
+              <div className="ticker-info">
+                <span className="ticker-symbol">INFY</span>
+                <span className="ticker-fullname">Infosys Ltd</span>
+              </div>
+              <span className="ticker-rate">₹1,490.50</span>
+              <span className="ticker-pct neg">-0.82%</span>
+            </div>
+            <div className="watchlist-row-item">
+              <div className="ticker-info">
+                <span className="ticker-symbol">RELIANCE</span>
+                <span className="ticker-fullname">Reliance Ind.</span>
+              </div>
+              <span className="ticker-rate">₹2,950.40</span>
+              <span className="ticker-pct pos">+1.15%</span>
+            </div>
+            <div className="watchlist-row-item">
+              <div className="ticker-info">
+                <span className="ticker-symbol">HDFCBANK</span>
+                <span className="ticker-fullname">HDFC Bank Ltd</span>
+              </div>
+              <span className="ticker-rate">₹1,560.10</span>
+              <span className="ticker-pct pos">+0.04%</span>
+            </div>
+          </div>
+        </Card>
+      </div>
+    </motion.div>
   );
 };
 

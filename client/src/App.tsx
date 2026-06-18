@@ -2,6 +2,7 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./app/providers/AuthProvider";
 import ProtectedRoute from "./routes/ProtectedRoute";
+import DashboardLayout from "./layouts/DashboardLayout";
 
 // Page Imports
 import Login from "./pages/auth/Login";
@@ -25,15 +26,23 @@ export const App: React.FC = () => {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
 
-          {/* Protected Main Routes */}
+          {/* Protected Main Routes wrapped with security and layout */}
           <Route element={<ProtectedRoute />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/markets" element={<Markets />} />
-            <Route path="/signals" element={<Signals />} />
-            <Route path="/news" element={<News />} />
-            <Route path="/watchlist" element={<Watchlist />} />
-            <Route path="/paper-trading" element={<PaperTrading />} />
-            <Route path="/profile" element={<Profile />} />
+            <Route element={<DashboardLayout />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/markets" element={<Markets />} />
+              <Route path="/analysis" element={
+                <div style={{ padding: "2rem" }}>
+                  <h1 style={{ fontSize: "28px", marginBottom: "1rem" }}>AI Analysis</h1>
+                  <p style={{ color: "var(--text-secondary)" }}>AI-powered stock analysis model metrics, valuation estimates, and sector heatmaps.</p>
+                </div>
+              } />
+              <Route path="/signals" element={<Signals />} />
+              <Route path="/news" element={<News />} />
+              <Route path="/watchlist" element={<Watchlist />} />
+              <Route path="/paper-trading" element={<PaperTrading />} />
+              <Route path="/profile" element={<Profile />} />
+            </Route>
           </Route>
 
           {/* Catch-all Redirect */}
