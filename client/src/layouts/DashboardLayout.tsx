@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import { ThemeProvider } from "../context/ThemeContext";
 import Sidebar from "../components/sidebar/Sidebar";
 import Header from "../components/header/Header";
+import BreakingBanner from "../features/news/BreakingBanner";
 import CommandPalette from "../components/command-palette/CommandPalette";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -34,6 +35,9 @@ export const DashboardLayout: React.FC = () => {
 
         {/* Right side Wrapper */}
         <div className="layout-content-wrapper">
+          {/* Breaking News Ticker */}
+          <BreakingBanner />
+
           {/* Header containing search trigger, toggle, notifications */}
           <Header 
             onMobileMenuToggle={() => setIsMobileMenuOpen(true)} 

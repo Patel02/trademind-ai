@@ -13,13 +13,20 @@ import {
   Sparkles, 
   Layers, 
   Newspaper, 
-  Eye, 
-  Check 
+  Eye
 } from "lucide-react";
+
+// Feature Imports
+import MarketRadar from "../../features/market-radar/MarketRadar";
+import ActivityFeed from "../../features/activity-feed/ActivityFeed";
+import NewsCard from "../../features/news/NewsCard";
+import { newsService } from "../../features/news/news.service";
+import type { NewsItem } from "../../features/news/types";
 
 export const Dashboard: React.FC = () => {
   const { user, profile } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
+  const [latestNews, setLatestNews] = useState<NewsItem[]>([]);
 
   // Sync consents from localStorage if any
   useEffect(() => {
@@ -39,10 +46,14 @@ export const Dashboard: React.FC = () => {
     }
   }, [user]);
 
-  // Simulate premium content load delay
+  // Fetch news and simulate premium content load delay
   useEffect(() => {
-    const timer = setTimeout(() => setIsLoading(false), 900);
-    return () => clearTimeout(timer);
+    Promise.all([
+      newsService.getNews().then((data) => setLatestNews(data.slice(0, 2))),
+      new Promise((resolve) => setTimeout(resolve, 800))
+    ]).then(() => {
+      setIsLoading(false);
+    });
   }, []);
 
   const containerVariants = {
@@ -58,21 +69,24 @@ export const Dashboard: React.FC = () => {
     return (
       <div style={{ padding: "2rem" }}>
         {/* Top welcome loading */}
-        <Loader type="line" count={1} height="36px" className="mb-2" />
-        <Loader type="line" count={1} height="18px" className="mb-8" style={{ width: "60%" }} />
+        <Loader type="line" count={1} height="36px" style={{ marginBottom: "10px" }} />
+        <Loader type="line" count={1} height="18px" style={{ marginBottom: "2rem", width: "60%" }} />
 
-        {/* 4 columns layout skeleton */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.5rem", marginBottom: "2rem" }}>
-          <Loader type="card" count={1} />
-          <Loader type="card" count={1} />
-          <Loader type="card" count={1} />
-          <Loader type="card" count={1} />
+        {/* 2 columns row 1 skeleton */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem", marginBottom: "1.5rem" }}>
+          <Loader type="card" count={2} height="180px" />
         </div>
 
-        {/* 2 columns layout skeleton */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(450px, 1fr))", gap: "1.5rem" }}>
-          <Loader type="card" count={1} height="320px" />
-          <Loader type="card" count={1} height="320px" />
+        {/* 2 columns row 2 skeleton */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
+          <Loader type="card" count={1} height="280px" />
+          <Loader type="card" count={1} height="280px" />
+        </div>
+
+        {/* 2 columns row 3 skeleton */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "1.5rem" }}>
+          <Loader type="card" count={1} height="220px" />
+          <Loader type="card" count={1} height="220px" />
         </div>
       </div>
     );
@@ -87,200 +101,171 @@ export const Dashboard: React.FC = () => {
       style={{ padding: "2rem" }}
     >
       {/* Top Banner Row */}
-      <div className="welcome-banner-row">
+      <div className="welcome-banner-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
         <div>
-          <h1 className="dashboard-title">
-            Hey, {profile?.full_name || user?.email?.split("@")[0]} <Sparkles size={20} className="text-warning-icon" />
+          <h1 className="dashboard-title" style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "28px", fontWeight: "800" }}>
+            Hey, {profile?.full_name || user?.email?.split("@")[0]}{" "}
+            <Badge variant="success" style={{ fontSize: "11px", fontWeight: "750", padding: "2px 6px" }}>
+              {profile?.subscription_plan?.toUpperCase() || "FREE"}
+            </Badge>
+            <Sparkles size={20} className="text-warning-icon" style={{ color: "var(--accent-yellow)" }} />
           </h1>
-          <p className="dashboard-subtitle">Here is your market summary and trading signals for today.</p>
+          <p className="dashboard-subtitle" style={{ color: "var(--text-secondary)", fontSize: "14px", marginTop: "6px", margin: 0 }}>
+            Here is your market summary and trading signals for today.
+          </p>
         </div>
-        <div className="pulse-tag">
-          <span className="pulse-dot"></span>
-          <span className="pulse-text">Live market feed</span>
+        <div className="pulse-tag" style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: "20px", padding: "4px 10px", fontSize: "11px", color: "var(--accent-green)", fontWeight: "600" }}>
+          <span className="pulse-dot" style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--accent-green)", display: "inline-block" }}></span>
+          <span className="pulse-text">Live Intelligence Feed</span>
         </div>
       </div>
 
-      {/* Primary Metrics Row (Grid 4 column layout) */}
-      <div className="metrics-grid">
-        {/* Widget 1: AI Market Pulse */}
-        <Card 
-          title="AI Market Pulse" 
-          extra={<BrainCircuit size={18} color="#10b981" />}
-          subtitle="Real-time sentiment score"
-        >
-          <div className="ai-pulse-body">
-            <div className="ai-pulse-value">
-              <span className="pulse-val-num">82%</span>
-              <Badge sentiment="bullish">Strong Bullish</Badge>
+      <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+        
+        {/* ROW 1: AI Market Pulse + Market Overview (Indices) */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem" }} className="responsive-split-row">
+          {/* Widget 1: AI Market Pulse */}
+          <Card 
+            title="AI Market Pulse" 
+            extra={<BrainCircuit size={18} style={{ color: "var(--accent-green)" }} />}
+            subtitle="Real-time sentiment score"
+          >
+            <div className="ai-pulse-body" style={{ marginTop: "0.5rem" }}>
+              <div className="ai-pulse-value" style={{ display: "flex", alignItems: "baseline", gap: "10px", marginBottom: "12px" }}>
+                <span className="pulse-val-num" style={{ fontSize: "42px", fontWeight: "850" }}>82%</span>
+                <Badge sentiment="bullish">Strong Bullish</Badge>
+              </div>
+              <div className="progress-bar-container" style={{ marginBottom: "10px" }}>
+                <div className="progress-bar-fill" style={{ width: "82%" }}></div>
+              </div>
+              <p className="widget-small-text" style={{ margin: 0, fontSize: "12px", color: "var(--text-secondary)" }}>
+                Based on 14 major indicators and news feeds.
+              </p>
             </div>
-            <div className="progress-bar-container">
-              <div className="progress-bar-fill" style={{ width: "82%" }}></div>
-            </div>
-            <p className="widget-small-text">Based on 14 major indicators and news feeds.</p>
-          </div>
-        </Card>
+          </Card>
 
-        {/* Widget 2: Market Overview (Indices) */}
-        <Card title="Market Indices" extra={<Activity size={18} color="#3b82f6" />}>
-          <div className="indices-list">
-            <div className="index-row">
-              <span className="index-name">NIFTY 50</span>
-              <div className="index-price-group">
-                <span className="index-price">23,465.60</span>
-                <span className="index-change pos">
-                  <TrendingUp size={12} /> +1.24%
-                </span>
+          {/* Widget 2: Market Overview (Indices) */}
+          <Card title="Market Indices" extra={<Activity size={18} style={{ color: "var(--accent-blue)" }} />}>
+            <div className="indices-list" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+              <div className="index-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
+                <span className="index-name" style={{ fontSize: "13.5px", fontWeight: "600" }}>NIFTY 50</span>
+                <div className="index-price-group" style={{ textAlign: "right" }}>
+                  <span className="index-price" style={{ fontWeight: "700", display: "block" }}>23,465.60</span>
+                  <span className="index-change pos" style={{ color: "var(--accent-green)", fontSize: "11px", display: "flex", alignItems: "center", gap: "2px", justifyContent: "flex-end" }}>
+                    <TrendingUp size={11} /> +1.24%
+                  </span>
+                </div>
+              </div>
+              <div className="index-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
+                <span className="index-name" style={{ fontSize: "13.5px", fontWeight: "600" }}>BANK NIFTY</span>
+                <div className="index-price-group" style={{ textAlign: "right" }}>
+                  <span className="index-price" style={{ fontWeight: "700", display: "block" }}>49,852.10</span>
+                  <span className="index-change pos" style={{ color: "var(--accent-green)", fontSize: "11px", display: "flex", alignItems: "center", gap: "2px", justifyContent: "flex-end" }}>
+                    <TrendingUp size={11} /> +0.94%
+                  </span>
+                </div>
+              </div>
+              <div className="index-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span className="index-name" style={{ fontSize: "13.5px", fontWeight: "600" }}>SENSEX</span>
+                <div className="index-price-group" style={{ textAlign: "right" }}>
+                  <span className="index-price" style={{ fontWeight: "700", display: "block" }}>77,150.30</span>
+                  <span className="index-change neg" style={{ color: "var(--accent-red)", fontSize: "11px", display: "flex", alignItems: "center", gap: "2px", justifyContent: "flex-end" }}>
+                    <TrendingDown size={11} /> -0.12%
+                  </span>
+                </div>
               </div>
             </div>
-            <div className="index-row">
-              <span className="index-name">BANK NIFTY</span>
-              <div className="index-price-group">
-                <span className="index-price">49,852.10</span>
-                <span className="index-change pos">
-                  <TrendingUp size={12} /> +0.94%
-                </span>
-              </div>
-            </div>
-            <div className="index-row">
-              <span className="index-name">SENSEX</span>
-              <div className="index-price-group">
-                <span className="index-price">77,150.30</span>
-                <span className="index-change neg">
-                  <TrendingDown size={12} /> -0.12%
-                </span>
-              </div>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
-        {/* Widget 3: Top Opportunities */}
-        <Card title="Top Opportunities" extra={<Layers size={18} color="#f59e0b" />}>
-          <div className="indices-list">
-            <div className="opportunity-row">
-              <span className="opportunity-ticker">TCS</span>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <span className="opportunity-price">₹3,845.20</span>
-                <Badge variant="success">BUY</Badge>
-              </div>
-            </div>
-            <div className="opportunity-row">
-              <span className="opportunity-ticker">RELIANCE</span>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <span className="opportunity-price">₹2,950.40</span>
-                <Badge variant="success">STRONG BUY</Badge>
-              </div>
-            </div>
-            <div className="opportunity-row">
-              <span className="opportunity-ticker">HDFCBANK</span>
-              <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                <span className="opportunity-price">₹1,560.10</span>
-                <Badge variant="warning">HOLD</Badge>
-              </div>
-            </div>
-          </div>
-        </Card>
+        {/* ROW 2: Market Radar Heatmap + AI Activity Feed */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: "1.5rem" }} className="responsive-split-row">
+          <MarketRadar />
+          <ActivityFeed />
+        </div>
 
-        {/* Account Plan summary */}
-        <Card title="Account Info" extra={<Sparkles size={18} color="#aa3bff" />}>
-          <div className="account-info-widget">
-            <div className="plan-badge-container">
-              <span className="plan-label">ACTIVE PLAN</span>
-              <span className="plan-title">{profile?.subscription_plan?.toUpperCase() || "FREE PLAN"}</span>
-            </div>
-            <div className="account-meta">
-              <div className="meta-row">
-                <span>Account Role</span>
-                <span style={{ textTransform: "capitalize", fontWeight: "600" }}>{profile?.role || "User"}</span>
+        {/* ROW 3: Top Opportunities + Latest AI Summarized News */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "1.5rem" }} className="responsive-split-row">
+          {/* Widget: Top Opportunities */}
+          <Card title="Top Opportunities" extra={<Layers size={18} style={{ color: "var(--accent-yellow)" }} />}>
+            <div className="indices-list" style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "0.5rem" }}>
+              <div className="opportunity-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border)", padding: "10px", borderRadius: "8px" }}>
+                <span className="opportunity-ticker" style={{ fontWeight: "750" }}>TCS</span>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <span className="opportunity-price" style={{ fontSize: "13.5px", fontWeight: "600" }}>₹3,845.20</span>
+                  <Badge variant="success">BUY (89)</Badge>
+                </div>
               </div>
-              <div className="meta-row">
-                <span>Consents Sync</span>
-                <span style={{ color: "#10b981", display: "flex", alignItems: "center", gap: "4px" }}>
-                  <Check size={14} /> Synchronized
-                </span>
+              <div className="opportunity-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border)", padding: "10px", borderRadius: "8px" }}>
+                <span className="opportunity-ticker" style={{ fontWeight: "750" }}>RELIANCE</span>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <span className="opportunity-price" style={{ fontSize: "13.5px", fontWeight: "600" }}>₹2,950.40</span>
+                  <Badge variant="success">BUY (87)</Badge>
+                </div>
+              </div>
+              <div className="opportunity-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border)", padding: "10px", borderRadius: "8px" }}>
+                <span className="opportunity-ticker" style={{ fontWeight: "750" }}>HDFCBANK</span>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <span className="opportunity-price" style={{ fontSize: "13.5px", fontWeight: "600" }}>₹1,560.10</span>
+                  <Badge variant="warning">HOLD (75)</Badge>
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
-      </div>
+          </Card>
 
-      {/* Secondary Row (Grid 2 column layout) */}
-      <div className="secondary-grid">
-        {/* Widget 4: News Preview */}
-        <Card 
-          title="Market News Summary" 
-          extra={<Newspaper size={18} color="#64748b" />}
-          subtitle="Top financial events today"
-        >
-          <div className="news-summary-list">
-            <div className="news-item">
-              <span className="news-time">10 mins ago</span>
-              <h4 className="news-item-title">RBI holds repo rate unchanged at 6.5%, maintains 'withdrawal of accommodation' stance.</h4>
+          {/* Widget: Latest AI Summarized News */}
+          <Card 
+            title="Latest Intelligence News" 
+            subtitle="Recent impact items"
+            extra={<Newspaper size={18} style={{ color: "var(--text-secondary)" }} />}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              {latestNews.map((item) => (
+                <NewsCard key={item.id} item={item} />
+              ))}
             </div>
-            <div className="news-item">
-              <span className="news-time">45 mins ago</span>
-              <h4 className="news-item-title">US tech indices rally as federal inflation metrics print cooler than expected figures.</h4>
-            </div>
-            <div className="news-item">
-              <span className="news-time">2 hours ago</span>
-              <h4 className="news-item-title">TCS announces major cloud partnership with European retail giant, stock jumps 2.3%.</h4>
-            </div>
-            <div className="news-item">
-              <span className="news-time">4 hours ago</span>
-              <h4 className="news-item-title">Gold rates approach record highs amidst geopolitical uncertainty and dollar consolidation.</h4>
-            </div>
-            <div className="news-item">
-              <span className="news-time">6 hours ago</span>
-              <h4 className="news-item-title">Crude oil steady at $82/bbl following OPEC production cuts renewal guidelines.</h4>
-            </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
 
-        {/* Widget 5: Watchlist Preview */}
+        {/* ROW 4: Watchlist Table */}
         <Card 
           title="My Watchlist" 
-          extra={<Eye size={18} color="#aa3bff" />}
+          extra={<Eye size={18} style={{ color: "var(--accent-purple)" }} />}
           subtitle="Quick rates overview"
         >
-          <div className="watchlist-table-preview">
-            <div className="watchlist-header-row">
-              <span>TICKER</span>
-              <span style={{ textAlign: "right" }}>PRICE</span>
-              <span style={{ textAlign: "right" }}>CHANGE</span>
+          <div className="watchlist-table-preview" style={{ marginTop: "0.5rem" }}>
+            <div className="watchlist-header-row" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", borderBottom: "1px solid var(--border)", paddingBottom: "8px", marginBottom: "8px", fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-secondary)" }}>
+              <span>Ticker</span>
+              <span style={{ textAlign: "right" }}>Price</span>
+              <span style={{ textAlign: "right" }}>Change</span>
             </div>
-            <div className="watchlist-row-item">
+            <div className="watchlist-row-item" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", alignItems: "center", borderBottom: "1px solid var(--border)", padding: "8px 0" }}>
               <div className="ticker-info">
-                <span className="ticker-symbol">TCS</span>
-                <span className="ticker-fullname">Tata Consult...</span>
+                <span className="ticker-symbol" style={{ fontWeight: "750", display: "block" }}>TCS</span>
+                <span className="ticker-fullname" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Tata Consultancy Services</span>
               </div>
-              <span className="ticker-rate">₹3,845.20</span>
-              <span className="ticker-pct pos">+2.45%</span>
+              <span className="ticker-rate" style={{ textAlign: "right", fontWeight: "600" }}>₹3,845.20</span>
+              <span className="ticker-pct pos" style={{ textAlign: "right", color: "var(--accent-green)", fontWeight: "600" }}>+2.45%</span>
             </div>
-            <div className="watchlist-row-item">
+            <div className="watchlist-row-item" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", alignItems: "center", borderBottom: "1px solid var(--border)", padding: "8px 0" }}>
               <div className="ticker-info">
-                <span className="ticker-symbol">INFY</span>
-                <span className="ticker-fullname">Infosys Ltd</span>
+                <span className="ticker-symbol" style={{ fontWeight: "750", display: "block" }}>INFY</span>
+                <span className="ticker-fullname" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Infosys Ltd</span>
               </div>
-              <span className="ticker-rate">₹1,490.50</span>
-              <span className="ticker-pct neg">-0.82%</span>
+              <span className="ticker-rate" style={{ textAlign: "right", fontWeight: "600" }}>₹1,490.50</span>
+              <span className="ticker-pct neg" style={{ textAlign: "right", color: "var(--accent-red)", fontWeight: "600" }}>-0.82%</span>
             </div>
-            <div className="watchlist-row-item">
+            <div className="watchlist-row-item" style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr", alignItems: "center", padding: "8px 0" }}>
               <div className="ticker-info">
-                <span className="ticker-symbol">RELIANCE</span>
-                <span className="ticker-fullname">Reliance Ind.</span>
+                <span className="ticker-symbol" style={{ fontWeight: "750", display: "block" }}>RELIANCE</span>
+                <span className="ticker-fullname" style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Reliance Industries</span>
               </div>
-              <span className="ticker-rate">₹2,950.40</span>
-              <span className="ticker-pct pos">+1.15%</span>
-            </div>
-            <div className="watchlist-row-item">
-              <div className="ticker-info">
-                <span className="ticker-symbol">HDFCBANK</span>
-                <span className="ticker-fullname">HDFC Bank Ltd</span>
-              </div>
-              <span className="ticker-rate">₹1,560.10</span>
-              <span className="ticker-pct pos">+0.04%</span>
+              <span className="ticker-rate" style={{ textAlign: "right", fontWeight: "600" }}>₹2,950.40</span>
+              <span className="ticker-pct pos" style={{ textAlign: "right", color: "var(--accent-green)", fontWeight: "600" }}>+1.15%</span>
             </div>
           </div>
         </Card>
+
       </div>
     </motion.div>
   );

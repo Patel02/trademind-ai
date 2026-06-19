@@ -5,6 +5,7 @@ interface BadgeProps {
   variant?: "primary" | "success" | "danger" | "warning" | "info";
   children?: React.ReactNode;
   className?: string;
+  style?: React.CSSProperties;
 }
 
 export const Badge: React.FC<BadgeProps> = ({
@@ -12,6 +13,7 @@ export const Badge: React.FC<BadgeProps> = ({
   variant,
   children,
   className = "",
+  style,
 }) => {
   // Determine color coding based on sentiment or variant
   let badgeClass = "badge";
@@ -29,7 +31,7 @@ export const Badge: React.FC<BadgeProps> = ({
   }
 
   return (
-    <span className={`${badgeClass} ${className}`}>
+    <span className={`${badgeClass} ${className}`} style={style}>
       {sentiment && <span className="badge-sentiment-dot"></span>}
       <span className="badge-text">{displayValue}</span>
     </span>

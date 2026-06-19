@@ -8,6 +8,7 @@ interface CardProps {
   children: React.ReactNode;
   className?: string;
   hoverEffect?: boolean;
+  style?: React.CSSProperties;
 }
 
 export const Card: React.FC<CardProps> = ({
@@ -17,25 +18,25 @@ export const Card: React.FC<CardProps> = ({
   children,
   className = "",
   hoverEffect = false,
+  style,
 }) => {
   const cardVariants = {
     hidden: { opacity: 0, y: 15 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.35, ease: "easeOut" as any } },
   };
 
-  const interactiveProps = hoverEffect
-    ? {
-        whileHover: { y: -4, scale: 1.008, transition: { duration: 0.2 } },
-        style: { cursor: "pointer" },
-      }
-    : {};
+  const combinedStyle = {
+    ...style,
+    ...(hoverEffect ? { cursor: "pointer" } : {}),
+  };
 
   return (
     <motion.div
       variants={cardVariants}
       initial="hidden"
       animate="visible"
-      {...interactiveProps}
+      whileHover={hoverEffect ? { y: -4, scale: 1.008, transition: { duration: 0.2 } } : undefined}
+      style={combinedStyle}
       className={`card ${hoverEffect ? "card-interactive" : ""} ${className}`}
     >
       {(title || extra || subtitle) && (
