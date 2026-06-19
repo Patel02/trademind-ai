@@ -7,10 +7,18 @@ export const BreakingBanner: React.FC = () => {
   const [news, setNews] = useState<NewsItem[]>([]);
 
   useEffect(() => {
-    newsService.getBreakingNews().then((data) => {
-      // Only show top high-impact news
-      setNews(data);
-    });
+    const fetchBreakingNews = () => {
+      newsService.getBreakingNews().then((data) => {
+        setNews(data);
+      });
+    };
+
+    fetchBreakingNews();
+
+    // Auto-refresh breaking news in the background every 15 minutes
+    const intervalId = setInterval(fetchBreakingNews, 15 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   if (news.length === 0) return null;

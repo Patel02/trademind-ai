@@ -48,12 +48,21 @@ export const Dashboard: React.FC = () => {
 
   // Fetch news and simulate premium content load delay
   useEffect(() => {
+    const fetchLatestNews = () => {
+      newsService.getNews().then((data) => setLatestNews(data.slice(0, 2)));
+    };
+
     Promise.all([
       newsService.getNews().then((data) => setLatestNews(data.slice(0, 2))),
       new Promise((resolve) => setTimeout(resolve, 800))
     ]).then(() => {
       setIsLoading(false);
     });
+
+    // Auto-refresh dashboard news in the background every 15 minutes
+    const intervalId = setInterval(fetchLatestNews, 15 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   const containerVariants = {

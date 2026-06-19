@@ -18,10 +18,19 @@ export const News: React.FC = () => {
   const categories = ["All", "Market", "Company", "Economy", "Global", "Sector", "Earnings"];
 
   useEffect(() => {
-    newsService.getNews().then((data) => {
-      setNews(data);
-      setLoading(false);
-    });
+    const fetchNewsData = () => {
+      newsService.getNews().then((data) => {
+        setNews(data);
+        setLoading(false);
+      });
+    };
+
+    fetchNewsData();
+
+    // Auto-refresh news in the background every 15 minutes
+    const intervalId = setInterval(fetchNewsData, 15 * 60 * 1000);
+
+    return () => clearInterval(intervalId);
   }, []);
 
   // Filter News Logic
