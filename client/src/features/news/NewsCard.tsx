@@ -2,7 +2,7 @@ import React from "react";
 import type { NewsItem } from "./types";
 import Badge from "../../components/ui/Badge";
 import Card from "../../components/ui/Card";
-import { Clock, Sparkles } from "lucide-react";
+import { Clock, Sparkles, ExternalLink } from "lucide-react";
 
 interface NewsCardProps {
   item: NewsItem;
@@ -109,6 +109,31 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item, onSymbolClick }) => {
           {item.summary}
         </p>
       </div>
+
+      {/* Read More Link */}
+      {item.url && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "12px" }}>
+          <a 
+            href={item.url} 
+            target="_blank" 
+            rel="noopener noreferrer"
+            style={{
+              fontSize: "12px",
+              color: "var(--accent-green)",
+              textDecoration: "none",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              fontWeight: "750",
+              opacity: 0.85
+            }}
+            className="read-more-link"
+          >
+            <span>Read full story on {item.source}</span>
+            <ExternalLink size={12} />
+          </a>
+        </div>
+      )}
     </Card>
   );
 };

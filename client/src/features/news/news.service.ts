@@ -12,6 +12,7 @@ const mockNewsItems: NewsItem[] = [
     sentiment_score: 52, // Neutral-ish
     impact_score: 74, // High
     published_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(), // 10 mins ago
+    url: 'https://www.ft.com/markets',
     symbols: ['BANKNIFTY', 'HDFCBANK']
   },
   {
@@ -23,6 +24,7 @@ const mockNewsItems: NewsItem[] = [
     sentiment_score: 88, // Positive
     impact_score: 85, // High
     published_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 mins ago
+    url: 'https://www.bloomberg.com/technology',
     symbols: ['TCS']
   },
   {
@@ -34,6 +36,7 @@ const mockNewsItems: NewsItem[] = [
     sentiment_score: 82, // Positive
     impact_score: 81, // High
     published_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
+    url: 'https://www.livemint.com/technology',
     symbols: ['INFY']
   },
   {
@@ -45,6 +48,7 @@ const mockNewsItems: NewsItem[] = [
     sentiment_score: 85, // Positive
     impact_score: 78, // High
     published_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    url: 'https://www.reuters.com/technology',
     symbols: ['TCS', 'INFY']
   },
   {
@@ -56,6 +60,7 @@ const mockNewsItems: NewsItem[] = [
     sentiment_score: 78, // Positive
     impact_score: 65, // Medium
     published_at: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(), // 4 hours ago
+    url: 'https://economictimes.indiatimes.com/industry/auto',
     symbols: ['RELIANCE']
   },
   {
@@ -67,6 +72,7 @@ const mockNewsItems: NewsItem[] = [
     sentiment_score: 82, // Positive
     impact_score: 80, // High
     published_at: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(), // 6 hours ago
+    url: 'https://www.cnbc.com/markets',
     symbols: ['RELIANCE']
   },
   {
@@ -78,6 +84,7 @@ const mockNewsItems: NewsItem[] = [
     sentiment_score: 25, // Negative
     impact_score: 42, // Medium
     published_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
+    url: 'https://www.reuters.com/markets',
     symbols: []
   }
 ];
@@ -101,6 +108,7 @@ export const newsService = {
           impact_score,
           published_at,
           created_at,
+          url,
           news_stock_mapping(symbol)
         `)
         .order("published_at", { ascending: false });
@@ -119,6 +127,7 @@ export const newsService = {
           impact_score: item.impact_score,
           published_at: item.published_at,
           created_at: item.created_at,
+          url: item.url,
           symbols: item.news_stock_mapping ? item.news_stock_mapping.map((m: any) => m.symbol) : []
         }));
       }

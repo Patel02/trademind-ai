@@ -8,6 +8,7 @@ export interface NewsItem {
   impact_score: number; // 0 to 100
   published_at: string;
   created_at?: string;
+  url?: string; // Link to the original full news article
   symbols?: string[]; // Mapped stock symbols
 }
 
