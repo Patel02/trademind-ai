@@ -21,6 +21,10 @@ export interface PortfolioDiagnosis {
   unrealizedPnLPct: number;
   cashPct: number;
   healthScore: number;
+  diversificationScore: number;
+  riskScore: number;
+  sectorBalanceScore: number;
+  cashAllocationScore: number;
   diversificationLevel: string;
   diversificationBadge: "success" | "info" | "warning" | "danger";
   volatilityDrag: number;
@@ -28,6 +32,16 @@ export interface PortfolioDiagnosis {
   sectorAllocations: SectorAllocation[];
   stockAllocations: StockAllocation[];
   suggestions: { id: number; text: string; type: "warning" | "info" | "success" }[];
+}
+
+export interface StressTestResult {
+  testType: string;
+  title: string;
+  drawdownPct: number;
+  simulatedNav: number;
+  simulatedHealthScore: number;
+  description: string;
+  recommendations: string[];
 }
 
 export const stockSectors: Record<string, { sector: string; color: string }> = {
@@ -82,151 +96,163 @@ export const portfolioDoctorService = {
     sectorAllocations.sort((a, b) => b.allocationPct - a.allocationPct);
     stockAllocations.sort((a, b) => b.allocationPct - a.allocationPct);
 
-    // 3. Diversification Level
+    // 3. Sub-Score: Diversification Score
     const uniqueHoldingsCount = positions.filter((p) => p.quantity > 0).length;
+    let diversificationScore = 100;
     let diversificationLevel = "No Holdings";
     let diversificationBadge: "success" | "info" | "warning" | "danger" = "warning";
 
-    if (uniqueHoldingsCount === 1) {
+    if (uniqueHoldingsCount === 0) {
+      diversificationScore = 100;
+      diversificationLevel = "100% Cash Buffer";
+      diversificationBadge = "success";
+    } else if (uniqueHoldingsCount === 1) {
+      diversificationScore = 40;
       diversificationLevel = "Highly Concentrated";
       diversificationBadge = "danger";
     } else if (uniqueHoldingsCount === 2) {
+      diversificationScore = 60;
       diversificationLevel = "Concentrated";
       diversificationBadge = "warning";
     } else if (uniqueHoldingsCount === 3) {
+      diversificationScore = 80;
       diversificationLevel = "Moderate";
       diversificationBadge = "info";
     } else if (uniqueHoldingsCount >= 4) {
+      diversificationScore = 100;
       diversificationLevel = "Well Diversified";
       diversificationBadge = "success";
     }
 
-    // 4. Volatility Drag Estimation
-    // Base drag of 2%, increases with PnL volatility
-    const volatilityDrag = Number((2.0 + Math.min(10.0, Math.abs(unrealizedPnLPct) * 0.15)).toFixed(2));
-
-    // 5. Portfolio Health Score calculation (0-100 base)
-    let healthScore = 100;
-
+    // 4. Sub-Score: Risk Score
+    let riskScore = 100;
     if (uniqueHoldingsCount > 0) {
-      // Penalty for concentration risk on single stock (> 30%)
       stockAllocations.forEach((stock) => {
-        if (stock.allocationPct > 30) {
-          const excess = stock.allocationPct - 30;
-          healthScore -= Math.min(25, excess * 0.8);
+        if (stock.allocationPct > 40) {
+          riskScore -= 20; // Critical single-asset weight
+        } else if (stock.allocationPct > 20) {
+          riskScore -= 10;
         }
       });
+      if (unrealizedPnLPct < -5) {
+        riskScore -= 15; // Net loss drawdowns
+      }
+    }
+    riskScore = Math.max(20, Math.min(100, riskScore));
 
-      // Penalty for sector exposure (> 40% excluding cash)
+    // 5. Sub-Score: Sector Balance Score
+    let sectorBalanceScore = 100;
+    if (uniqueHoldingsCount > 0) {
       sectorAllocations.forEach((sec) => {
-        if (sec.allocationPct > 40) {
-          const excess = sec.allocationPct - 40;
-          healthScore -= Math.min(20, excess * 0.6);
+        if (sec.allocationPct > 50) {
+          sectorBalanceScore -= 30; // Heavy sector concentration
+        } else if (sec.allocationPct > 30) {
+          sectorBalanceScore -= 15;
         }
       });
 
-      // Penalty for cash levels (too high or too low)
-      if (cashPct > 85) {
-        healthScore -= 15; // Capital drag
-      } else if (cashPct < 5) {
-        healthScore -= 10; // Liquidity crunch
-      }
+      // Penalize missing primary sectors (Financials & Energy)
+      const hasFinancials = sectorAllocations.some((s) => s.sector === "Financials");
+      const hasEnergy = sectorAllocations.some((s) => s.sector === "Energy & Infra");
+      if (!hasFinancials) sectorBalanceScore -= 15;
+      if (!hasEnergy) sectorBalanceScore -= 10;
+    }
+    sectorBalanceScore = Math.max(20, Math.min(100, sectorBalanceScore));
 
-      // Performance adjustment
-      if (unrealizedPnLPct < 0) {
-        healthScore -= Math.min(15, Math.abs(unrealizedPnLPct) * 0.4);
-      } else {
-        healthScore += Math.min(10, unrealizedPnLPct * 0.3);
-      }
+    // 6. Sub-Score: Cash Allocation Score
+    let cashAllocationScore = 100;
+    if (cashPct >= 10 && cashPct <= 35) {
+      cashAllocationScore = 100; // Optimal
+    } else if (cashPct > 35 && cashPct <= 60) {
+      cashAllocationScore = 85;  // Slight cash drag
+    } else if (cashPct > 60) {
+      cashAllocationScore = 65;  // Severe cash capital drag
+    } else if (cashPct > 2 && cashPct < 10) {
+      cashAllocationScore = 80;  // Low cash buffer
     } else {
-      // Empty portfolio
-      healthScore = 100;
+      cashAllocationScore = 45;  // High liquidity risk
     }
 
-    healthScore = Math.max(20, Math.min(100, Math.round(healthScore)));
+    // 7. Portfolio Health Score (Weighted average of four sub-scores)
+    let healthScore = 100;
+    if (uniqueHoldingsCount > 0) {
+      healthScore = Math.round(
+        diversificationScore * 0.20 +
+        riskScore * 0.30 +
+        sectorBalanceScore * 0.30 +
+        cashAllocationScore * 0.20
+      );
+    }
+    healthScore = Math.max(20, Math.min(100, healthScore));
 
-    // 6. Risk Index
+    // 8. Volatility Drag Estimation
+    const volatilityDrag = Number((2.0 + Math.min(10.0, Math.abs(unrealizedPnLPct) * 0.15)).toFixed(2));
+
+    // 9. Risk Index
     let riskIndex: "Low" | "Medium" | "High" = "Low";
-    const maxStockPct = stockAllocations.length > 0 ? stockAllocations[0].allocationPct : 0;
-    const maxSectorPct = sectorAllocations.length > 0 ? sectorAllocations[0].allocationPct : 0;
-
-    if (maxStockPct > 45 || maxSectorPct > 60) {
+    if (riskScore < 50 || sectorBalanceScore < 60) {
       riskIndex = "High";
-    } else if (maxStockPct > 30 || maxSectorPct > 40 || uniqueHoldingsCount === 1) {
+    } else if (riskScore < 80 || sectorBalanceScore < 85 || uniqueHoldingsCount === 1) {
       riskIndex = "Medium";
     }
 
-    // 7. Dynamic AI Suggestions
+    // 10. Dynamic AI Suggestions
     const suggestions: { id: number; text: string; type: "warning" | "info" | "success" }[] = [];
     let sugId = 1;
 
     if (uniqueHoldingsCount === 0) {
       suggestions.push({
         id: sugId++,
-        text: "Portfolio is 100% Cash. Initiate pilot setups in high-scoring opportunities to deploy capital and hedge currency depreciation.",
+        text: "Portfolio is 100% Cash. Deploy capital into top-ranked Opportunities to hedge inflation drag.",
         type: "info"
       });
     } else {
-      // Cash drag
-      if (cashPct > 80) {
+      if (cashPct > 60) {
         suggestions.push({
           id: sugId++,
-          text: `High cash liquidity detected (${cashPct}%). Deploy idle capital into 2-3 low-risk setups to combat index inflation.`,
+          text: `High cash reserves (${cashPct}%). Deploy idle capital into high-readiness swing setups.`,
           type: "info"
         });
       } else if (cashPct < 5) {
         suggestions.push({
           id: sugId++,
-          text: `Liquidity is critically low (${cashPct}%). Consider liquidating minor stock positions to free up cash buying power for sudden corrections.`,
+          text: `Critical cash buffer (${cashPct}%). Liquidate micro holdings to restore portfolio liquidity.`,
           type: "warning"
         });
       }
 
-      // IT Services concentration
       const itSec = sectorAllocations.find((s) => s.sector === "IT Services");
       if (itSec && itSec.allocationPct > 40) {
         suggestions.push({
           id: sugId++,
-          text: `IT Services exposure is elevated (${itSec.allocationPct}%). Consider trimming TCS or INFY positions during the next technical rally.`,
+          text: `IT Services exposure is elevated (${itSec.allocationPct}%). Trim TCS or INFY setups to rebalance.`,
           type: "warning"
         });
       }
 
-      // Financials missing
       const financialSec = sectorAllocations.find((s) => s.sector === "Financials");
       if (!financialSec || financialSec.allocationPct === 0) {
         suggestions.push({
           id: sugId++,
-          text: "Zero financials allocation detected. Initiate a pilot position in HDFCBANK near key support zones to stabilize structural volatility.",
+          text: "Zero Financials exposure. Pilot HDFCBANK to add structural index defense.",
           type: "info"
         });
       }
 
-      // Correlation risk (TCS and INFY both held)
       const holdsTcs = positions.some((p) => p.symbol === "TCS" && p.quantity > 0);
       const holdsInfy = positions.some((p) => p.symbol === "INFY" && p.quantity > 0);
       if (holdsTcs && holdsInfy) {
         suggestions.push({
           id: sugId++,
-          text: "Holding both TCS & INFY results in high IT sectoral correlation. Consider consolidating into a single leading IT stock to limit sector drag.",
+          text: "IT sectoral correlation is high. Consolidate IT holdings to limit systematic drag.",
           type: "warning"
         });
       }
 
-      // Volatility warnings
-      if (Math.abs(unrealizedPnLPct) > 8) {
-        suggestions.push({
-          id: sugId++,
-          text: `Holdings volatility drag is elevated (${volatilityDrag}%). Establish strict trailing stop-losses to protect downside risk.`,
-          type: "warning"
-        });
-      }
-
-      // Optimal suggestions
       if (healthScore > 85 && uniqueHoldingsCount >= 3) {
         suggestions.push({
           id: sugId++,
-          text: "Portfolio metrics conform to standard balanced allocation standards. No immediate rebalancing is required.",
+          text: "Structural allocation parameters align with balanced portfolio targets.",
           type: "success"
         });
       }
@@ -240,6 +266,10 @@ export const portfolioDoctorService = {
       unrealizedPnLPct,
       cashPct,
       healthScore,
+      diversificationScore,
+      riskScore,
+      sectorBalanceScore,
+      cashAllocationScore,
       diversificationLevel,
       diversificationBadge,
       volatilityDrag,
@@ -247,6 +277,93 @@ export const portfolioDoctorService = {
       sectorAllocations,
       stockAllocations,
       suggestions
+    };
+  },
+
+  /**
+   * Run portfolio stress testing simulation models.
+   */
+  simulateStressTest(portfolio: PaperPortfolio, positions: PaperPosition[], testType: string): StressTestResult {
+    const cash = portfolio.balance;
+    const holdingsValue = positions.reduce((sum, pos) => sum + pos.quantity * pos.current_price, 0);
+    const nav = cash + holdingsValue;
+
+    let title = "";
+    let description = "";
+    const stockLosses: Record<string, number> = {}; // Drop per stock symbol
+    const recommendations: string[] = [];
+
+    // Calculate beta-weighted drops per asset class
+    positions.forEach((pos) => {
+      const sym = pos.symbol.toUpperCase();
+      if (testType === "MARKET_CRASH_5") {
+        title = "Market Crash -5%";
+        description = "Simulates a general systematic market correction of -5% across indices.";
+        // Sector specific beta drops
+        if (sym === "TCS" || sym === "INFY") stockLosses[sym] = 0.06; // Beta 1.2
+        else if (sym === "RELIANCE") stockLosses[sym] = 0.05; // Beta 1.0
+        else if (sym === "HDFCBANK") stockLosses[sym] = 0.045; // Beta 0.9
+        else stockLosses[sym] = 0.05;
+      } else if (testType === "MARKET_CRASH_10") {
+        title = "Market Crash -10%";
+        description = "Simulates a severe systematic correction of -10%, triggering volatility expansion.";
+        if (sym === "TCS" || sym === "INFY") stockLosses[sym] = 0.12;
+        else if (sym === "RELIANCE") stockLosses[sym] = 0.10;
+        else if (sym === "HDFCBANK") stockLosses[sym] = 0.09;
+        else stockLosses[sym] = 0.10;
+      } else if (testType === "IT_CRASH_20") {
+        title = "IT Sector Drop -20%";
+        description = "Simulates a targeted sector crash of -20% in IT Services with 2% contagion elsewhere.";
+        if (sym === "TCS" || sym === "INFY") stockLosses[sym] = 0.20;
+        else stockLosses[sym] = 0.02; // Contagion
+      } else if (testType === "VOLATILITY_SPIKE") {
+        title = "Volatility Spike (VIX > 25)";
+        description = "Simulates panic selling and spread widening, forcing all assets lower by -7.5%.";
+        stockLosses[sym] = 0.075;
+      }
+    });
+
+    // Compute simulated holdings loss
+    let simulatedHoldingsValue = 0;
+    positions.forEach((pos) => {
+      const lossFactor = stockLosses[pos.symbol.toUpperCase()] || 0.05;
+      simulatedHoldingsValue += pos.quantity * pos.current_price * (1 - lossFactor);
+    });
+
+    const simulatedNav = cash + simulatedHoldingsValue;
+    const lossValue = nav - simulatedNav;
+    const drawdownPct = nav > 0 ? Number(((lossValue / nav) * 100).toFixed(2)) : 0;
+
+    // Create simulated positions to run through diagnostics
+    const simulatedPositions = positions.map((pos) => {
+      const lossFactor = stockLosses[pos.symbol.toUpperCase()] || 0.05;
+      return {
+        ...pos,
+        current_price: pos.current_price * (1 - lossFactor)
+      };
+    });
+
+    const diag = this.diagnosePortfolio(portfolio, simulatedPositions);
+
+    // Compile stress test recommendations
+    if (drawdownPct > 5.0) {
+      recommendations.push("Estimated drawdown exceeds 5% boundary limit. Trim highly concentrated positions to restore cash hedge.");
+    } else {
+      recommendations.push("Drawdown bounds are within acceptable limits. Cash reserves are holding up portfolio value.");
+    }
+
+    if (testType === "IT_CRASH_20" && positions.some((p) => p.symbol === "TCS" || p.symbol === "INFY")) {
+      recommendations.push("IT sector crash severely impacts your NAV. Divert 15% capital from IT into low-beta Energy or Financials.");
+    }
+
+    return {
+      testType,
+      title,
+      drawdownPct,
+      simulatedNav: Number(simulatedNav.toFixed(2)),
+      simulatedHealthScore: diag.healthScore,
+      description,
+      recommendations
     };
   }
 };

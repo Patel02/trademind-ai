@@ -6,15 +6,20 @@ import {
   AlertTriangle,
   Lightbulb,
   Compass,
-  ArrowRight
+  ArrowRight,
+  ShieldCheck,
+  Zap,
+  RotateCcw
 } from "lucide-react";
 import Card from "../../components/ui/Card";
 import Badge from "../../components/ui/Badge";
 import Loader from "../../components/ui/Loader";
+import Button from "../../components/ui/Button";
 import { paperTradingService, type PaperPortfolio, type PaperPosition } from "../../features/paper-trading/paper-trading.service";
 import { 
   portfolioDoctorService, 
-  type PortfolioDiagnosis 
+  type PortfolioDiagnosis,
+  type StressTestResult
 } from "../../features/portfolio-doctor/portfolio-doctor.service";
 import RebalanceSimulator from "../../features/portfolio-doctor/RebalanceSimulator";
 
@@ -24,8 +29,9 @@ export const PortfolioDoctorPage: React.FC = () => {
   const [stockPrices, setStockPrices] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
-  // Simulation State
+  // Simulation & Stress Test States
   const [simulatedDiag, setSimulatedDiag] = useState<PortfolioDiagnosis | null>(null);
+  const [stressResult, setStressResult] = useState<StressTestResult | null>(null);
 
   const loadData = async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -76,9 +82,14 @@ export const PortfolioDoctorPage: React.FC = () => {
   // Use simulated calculations if simulation is active
   const activeDiag = simulatedDiag || currentDiag;
   const isSimulationActive = simulatedDiag !== null;
+  const isStressTestActive = stressResult !== null;
 
   const {
     healthScore,
+    diversificationScore,
+    riskScore,
+    sectorBalanceScore,
+    cashAllocationScore,
     diversificationLevel,
     diversificationBadge,
     volatilityDrag,
@@ -93,6 +104,24 @@ export const PortfolioDoctorPage: React.FC = () => {
   // Calculate difference if simulating
   const healthDelta = isSimulationActive ? healthScore - currentDiag.healthScore : 0;
 
+  const handleRunStressTest = (testType: string) => {
+    // Deactivate manual slider simulation when running stress test
+    setSimulatedDiag(null);
+    
+    const result = portfolioDoctorService.simulateStressTest(portfolio, positions, testType);
+    setStressResult(result);
+  };
+
+  const handleResetStressTest = () => {
+    setStressResult(null);
+  };
+
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return "var(--accent-green)";
+    if (score >= 55) return "var(--accent-yellow)";
+    return "var(--accent-red)";
+  };
+
   return (
     <div style={{ position: "relative" }} className="portfolio-doctor-page-wrapper">
       
@@ -103,7 +132,7 @@ export const PortfolioDoctorPage: React.FC = () => {
             Portfolio Doctor Pro
           </h1>
           <p style={{ color: "var(--text-secondary)", fontSize: "14px", marginTop: "4px", margin: 0 }}>
-            Hedge-fund risk analytics, diversification auditing, and allocation simulations
+            Hedge-fund risk analytics, stress testing, and allocation simulators
           </p>
         </div>
         
@@ -113,11 +142,24 @@ export const PortfolioDoctorPage: React.FC = () => {
             style={{ 
               fontWeight: "800", 
               fontSize: "11px", 
-              boxShadow: "0 0 10px rgba(245, 158, 11, 0.15)",
-              animation: "pulse 2s infinite"
+              boxShadow: "0 0 10px rgba(245, 158, 11, 0.15)"
             }}
           >
             SIMULATION MODE ACTIVE
+          </Badge>
+        )}
+
+        {isStressTestActive && (
+          <Badge 
+            variant="danger" 
+            style={{ 
+              fontWeight: "800", 
+              fontSize: "11px", 
+              boxShadow: "0 0 10px rgba(239, 68, 68, 0.15)",
+              animation: "pulse 2s infinite"
+            }}
+          >
+            STRESS TEST LAB ACTIVE
           </Badge>
         )}
       </div>
@@ -155,6 +197,68 @@ export const PortfolioDoctorPage: React.FC = () => {
           </div>
         )}
 
+        {/* Stress Test Banner Notification */}
+        {isStressTestActive && stressResult && (
+          <div 
+            style={{ 
+              background: "rgba(239, 68, 68, 0.05)", 
+              border: "1px solid rgba(239, 68, 68, 0.25)", 
+              borderRadius: "10px", 
+              padding: "16px 20px", 
+              marginBottom: "1.5rem",
+              fontSize: "13.5px" 
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "10px", borderBottom: "1px solid rgba(239, 68, 68, 0.15)", paddingBottom: "10px", marginBottom: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <ShieldCheck size={16} color="var(--accent-red)" />
+                <span style={{ fontWeight: "750", fontSize: "14.5px", color: "var(--accent-red)" }}>
+                  STRESS TEST SIMULATOR: {stressResult.title}
+                </span>
+              </div>
+              <Button 
+                variant="secondary" 
+                onClick={handleResetStressTest}
+                icon={<RotateCcw size={13} />}
+                style={{ padding: "4px 10px", fontSize: "12px", borderColor: "rgba(239,68,68,0.3)", color: "var(--accent-red)" }}
+              >
+                Reset Stress Test
+              </Button>
+            </div>
+            
+            <p style={{ margin: "0 0 12px 0", color: "var(--text-secondary)", fontSize: "13px" }}>
+              {stressResult.description}
+            </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1.5rem", marginBottom: "12px" }}>
+              <div style={{ background: "rgba(0,0,0,0.15)", padding: "10px 14px", borderRadius: "8px" }}>
+                <span style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block" }}>EXPECTED PORTFOLIO DRAWDOWN</span>
+                <strong style={{ fontSize: "18px", color: "var(--accent-red)" }}>-{stressResult.drawdownPct}%</strong>
+              </div>
+              <div style={{ background: "rgba(0,0,0,0.15)", padding: "10px 14px", borderRadius: "8px" }}>
+                <span style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block" }}>SIMULATED NET ASSET VALUE (NAV)</span>
+                <strong style={{ fontSize: "18px", color: "#fff" }}>₹{stressResult.simulatedNav.toLocaleString()}</strong>
+              </div>
+              <div style={{ background: "rgba(0,0,0,0.15)", padding: "10px 14px", borderRadius: "8px" }}>
+                <span style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block" }}>SIMULATED HEALTH SCORE</span>
+                <strong style={{ fontSize: "18px", color: getScoreColor(stressResult.simulatedHealthScore) }}>
+                  {stressResult.simulatedHealthScore}/100
+                </strong>
+              </div>
+            </div>
+
+            <div>
+              <strong style={{ fontSize: "12px", color: "var(--accent-yellow)", display: "block", marginBottom: "6px" }}>AI Risk Protection Suggestions:</strong>
+              {stressResult.recommendations.map((rec, idx) => (
+                <div key={idx} style={{ display: "flex", gap: "6px", alignItems: "flex-start", fontSize: "12.5px", color: "var(--text-secondary)", marginBottom: "4px" }}>
+                  <span style={{ color: "var(--accent-red)" }}>•</span>
+                  <span>{rec}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1.7fr", gap: "2rem" }} className="responsive-split-row">
           
           {/* LEFT COLUMN: Diagnostics Summary, Sector Allocation, Stock Concentration */}
@@ -177,7 +281,7 @@ export const PortfolioDoctorPage: React.FC = () => {
                       cy="50" 
                       r="40" 
                       fill="transparent" 
-                      stroke={healthScore > 80 ? "var(--accent-green)" : healthScore > 60 ? "var(--accent-yellow)" : "var(--accent-red)"} 
+                      stroke={getScoreColor(healthScore)} 
                       strokeWidth="8" 
                       strokeDasharray="251.2"
                       initial={{ strokeDashoffset: 251.2 }}
@@ -185,7 +289,7 @@ export const PortfolioDoctorPage: React.FC = () => {
                       transition={{ duration: 0.8 }}
                       strokeLinecap="round"
                       style={{ 
-                        filter: `drop-shadow(0px 0px 5px ${healthScore > 80 ? "var(--accent-green)" : healthScore > 60 ? "var(--accent-yellow)" : "var(--accent-red)"})` 
+                        filter: `drop-shadow(0px 0px 5px ${getScoreColor(healthScore)})` 
                       }}
                     />
                   </svg>
@@ -222,10 +326,60 @@ export const PortfolioDoctorPage: React.FC = () => {
               </div>
             </Card>
 
-            {/* Sector Exposure list */}
-            <Card title="Sector Allocation index" subtitle="Concentration bounds across sectors">
-              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            {/* Health Score Breakdown Widgets */}
+            <Card title="Structural Diagnostics Breakdown" subtitle="Detailed audit scores across core metrics">
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 
+                {/* Diversification */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "4px" }}>
+                    <span style={{ fontWeight: "600" }}>Diversification Index</span>
+                    <strong style={{ color: getScoreColor(diversificationScore) }}>{diversificationScore}/100</strong>
+                  </div>
+                  <div className="progress-bar-container" style={{ height: "5px" }}>
+                    <div className="progress-bar-fill" style={{ width: `${diversificationScore}%`, backgroundColor: getScoreColor(diversificationScore) }} />
+                  </div>
+                </div>
+
+                {/* Risk */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "4px" }}>
+                    <span style={{ fontWeight: "600" }}>Risk Auditing Score</span>
+                    <strong style={{ color: getScoreColor(riskScore) }}>{riskScore}/100</strong>
+                  </div>
+                  <div className="progress-bar-container" style={{ height: "5px" }}>
+                    <div className="progress-bar-fill" style={{ width: `${riskScore}%`, backgroundColor: getScoreColor(riskScore) }} />
+                  </div>
+                </div>
+
+                {/* Sector Balance */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "4px" }}>
+                    <span style={{ fontWeight: "600" }}>Sector Balance Score</span>
+                    <strong style={{ color: getScoreColor(sectorBalanceScore) }}>{sectorBalanceScore}/100</strong>
+                  </div>
+                  <div className="progress-bar-container" style={{ height: "5px" }}>
+                    <div className="progress-bar-fill" style={{ width: `${sectorBalanceScore}%`, backgroundColor: getScoreColor(sectorBalanceScore) }} />
+                  </div>
+                </div>
+
+                {/* Cash Allocation */}
+                <div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: "12px", marginBottom: "4px" }}>
+                    <span style={{ fontWeight: "600" }}>Cash Allocation Score</span>
+                    <strong style={{ color: getScoreColor(cashAllocationScore) }}>{cashAllocationScore}/100</strong>
+                  </div>
+                  <div className="progress-bar-container" style={{ height: "5px" }}>
+                    <div className="progress-bar-fill" style={{ width: `${cashAllocationScore}%`, backgroundColor: getScoreColor(cashAllocationScore) }} />
+                  </div>
+                </div>
+
+              </div>
+            </Card>
+
+            {/* Sector Exposure list */}
+            <Card title="Sector Allocation Index" subtitle="Concentration bounds across sectors">
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
                 {sectorAllocations.length > 0 ? (
                   sectorAllocations.map((sec) => (
                     <div key={sec.sector}>
@@ -251,7 +405,6 @@ export const PortfolioDoctorPage: React.FC = () => {
                     Portfolio is empty. Sector allocations are not available.
                   </div>
                 )}
-
               </div>
             </Card>
 
@@ -291,7 +444,7 @@ export const PortfolioDoctorPage: React.FC = () => {
 
           </div>
 
-          {/* RIGHT COLUMN: Rebalancing Simulator & AI Suggestions */}
+          {/* RIGHT COLUMN: Rebalancing Simulator & Stress Tests */}
           <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
             
             {/* Interactive Simulation Sliders */}
@@ -301,6 +454,46 @@ export const PortfolioDoctorPage: React.FC = () => {
               onSimulationUpdate={setSimulatedDiag}
               stockPrices={stockPrices}
             />
+
+            {/* Stress Test Lab */}
+            <Card title="Portfolio Stress Test Lab" subtitle="Simulate macro events to calculate expected NAV drawdowns" extra={<Zap size={18} color="var(--accent-red)" />}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                <p style={{ margin: 0, fontSize: "12.5px", color: "var(--text-secondary)", lineHeight: "1.4" }}>
+                  Trigger systematic or sector-specific drops to model your portfolio's stress bounds and view rebalancing recommendations.
+                </p>
+
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <Button 
+                    variant="secondary"
+                    onClick={() => handleRunStressTest("MARKET_CRASH_5")}
+                    style={{ borderColor: "rgba(239,68,68,0.2)", fontSize: "12.5px", padding: "8px" }}
+                  >
+                    Nifty Drop -5%
+                  </Button>
+                  <Button 
+                    variant="secondary"
+                    onClick={() => handleRunStressTest("MARKET_CRASH_10")}
+                    style={{ borderColor: "rgba(239,68,68,0.3)", fontSize: "12.5px", padding: "8px" }}
+                  >
+                    Nifty Drop -10%
+                  </Button>
+                  <Button 
+                    variant="secondary"
+                    onClick={() => handleRunStressTest("IT_CRASH_20")}
+                    style={{ borderColor: "rgba(239,68,68,0.25)", fontSize: "12.5px", padding: "8px" }}
+                  >
+                    IT Crash -20%
+                  </Button>
+                  <Button 
+                    variant="secondary"
+                    onClick={() => handleRunStressTest("VOLATILITY_SPIKE")}
+                    style={{ borderColor: "rgba(168,85,247,0.2)", fontSize: "12.5px", padding: "8px" }}
+                  >
+                    Volatility Spike
+                  </Button>
+                </div>
+              </div>
+            </Card>
 
             {/* AI Diagnostics suggestions */}
             <Card 
