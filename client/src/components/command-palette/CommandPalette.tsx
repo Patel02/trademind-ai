@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Search, LayoutDashboard, TrendingUp, BrainCircuit, Radio, Newspaper, Bookmark, Dices, User, CornerDownLeft } from "lucide-react";
+import { Search, LayoutDashboard, TrendingUp, BrainCircuit, Radio, Newspaper, Bookmark, Dices, User, CornerDownLeft, Activity, ShieldCheck, HeartPulse } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface CommandPaletteProps {
@@ -28,12 +28,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   const items: CommandItem[] = [
     // Pages
     { name: "Go to Dashboard", type: "page", path: "/dashboard", icon: <LayoutDashboard size={16} />, subtitle: "Overview of your portfolio and signals" },
-    { name: "Go to Markets", type: "page", path: "/markets", icon: <TrendingUp size={16} />, subtitle: "Real-time stock rates and indices" },
+    { name: "Go to Markets", type: "page", path: "/markets", icon: <TrendingUp size={16} />, subtitle: "Real-time stock rates and index statistics" },
     { name: "Go to AI Analysis", type: "page", path: "/analysis", icon: <BrainCircuit size={16} />, subtitle: "Smart model reviews and trading pulse" },
-    { name: "Go to Signals", type: "page", path: "/signals", icon: <Radio size={16} />, subtitle: "Live AI buy and sell triggers" },
+    { name: "Go to Signals", type: "page", path: "/signals", icon: <Radio size={16} />, subtitle: "Decision support and timing matrix" },
+    { name: "Go to Performance Ledger", type: "page", path: "/signals/performance", icon: <Activity size={16} />, subtitle: "Audited closed setups and win rate stats" },
+    { name: "Go to Admin SIOS Lifecycle", type: "page", path: "/admin/signals", icon: <ShieldCheck size={16} />, subtitle: "Publish setups, audits, and learning DNA (Admin Only)" },
     { name: "Go to News", type: "page", path: "/news", icon: <Newspaper size={16} />, subtitle: "Financial events and global news summaries" },
     { name: "Go to Watchlist", type: "page", path: "/watchlist", icon: <Bookmark size={16} />, subtitle: "Tracked tickers and alerts" },
     { name: "Go to Paper Trading", type: "page", path: "/paper-trading", icon: <Dices size={16} />, subtitle: "Risk-free strategy testing" },
+    { name: "Go to Portfolio Doctor", type: "page", path: "/portfolio-doctor", icon: <HeartPulse size={16} />, subtitle: "Hedge-fund risk analytics and rebalancing simulation" },
     { name: "Go to Profile Settings", type: "page", path: "/profile", icon: <User size={16} />, subtitle: "Manage your credentials and configurations" },
     
     // Stocks

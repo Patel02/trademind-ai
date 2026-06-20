@@ -12,7 +12,10 @@ import {
   ChevronLeft, 
   ChevronRight,
   X,
-  Sparkles
+  Sparkles,
+  Activity,
+  ShieldCheck,
+  HeartPulse
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -33,9 +36,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { name: "Markets", path: "/markets", icon: TrendingUp },
     { name: "AI Analysis", path: "/analysis", icon: BrainCircuit },
     { name: "Signals", path: "/signals", icon: Radio },
+    { name: "Performance", path: "/signals/performance", icon: Activity },
+    { name: "Admin Panel", path: "/admin/signals", icon: ShieldCheck },
     { name: "News", path: "/news", icon: Newspaper },
     { name: "Watchlist", path: "/watchlist", icon: Bookmark },
     { name: "Paper Trading", path: "/paper-trading", icon: Dices },
+    { name: "Portfolio Doctor", path: "/portfolio-doctor", icon: HeartPulse },
     { name: "Profile", path: "/profile", icon: User },
   ];
 

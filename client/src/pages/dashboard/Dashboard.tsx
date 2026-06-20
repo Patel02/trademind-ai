@@ -6,27 +6,27 @@ import Badge from "../../components/ui/Badge";
 import Loader from "../../components/ui/Loader";
 import { motion } from "framer-motion";
 import { 
-  TrendingUp, 
-  TrendingDown, 
   BrainCircuit, 
-  Activity, 
   Sparkles, 
   Layers, 
-  Newspaper, 
   Eye
 } from "lucide-react";
 
 // Feature Imports
 import MarketRadar from "../../features/market-radar/MarketRadar";
 import ActivityFeed from "../../features/activity-feed/ActivityFeed";
-import NewsCard from "../../features/news/NewsCard";
-import { newsService } from "../../features/news/news.service";
-import type { NewsItem } from "../../features/news/types";
+import SignalCard from "../../features/signals/SignalCard";
+import ReadinessLeaders from "../../features/signals/ReadinessLeaders";
+import RegimeIndicator from "../../features/signals/RegimeIndicator";
+import MorningBriefing from "../../features/signals/MorningBriefing";
+import PortfolioDoctor from "../../features/signals/PortfolioDoctor";
+import { signalsService } from "../../features/signals/signals.service";
+import type { AIScore } from "../../features/signals/types";
 
 export const Dashboard: React.FC = () => {
   const { user, profile } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
-  const [latestNews, setLatestNews] = useState<NewsItem[]>([]);
+  const [topOpportunities, setTopOpportunities] = useState<AIScore[]>([]);
 
   // Sync consents from localStorage if any
   useEffect(() => {
@@ -46,23 +46,25 @@ export const Dashboard: React.FC = () => {
     }
   }, [user]);
 
-  // Fetch news and simulate premium content load delay
+  // Fetch signals and simulate premium content load delay
   useEffect(() => {
-    const fetchLatestNews = () => {
-      newsService.getNews().then((data) => setLatestNews(data.slice(0, 2)));
+    const fetchDashboardData = async () => {
+      try {
+        const data = await signalsService.getSignals();
+        // Top opportunities by AI Score
+        const sorted = [...data].sort((a, b) => b.score - a.score);
+        setTopOpportunities(sorted.slice(0, 3));
+      } catch (err) {
+        console.error("Dashboard signals fetch failed", err);
+      }
     };
 
     Promise.all([
-      newsService.getNews().then((data) => setLatestNews(data.slice(0, 2))),
+      fetchDashboardData(),
       new Promise((resolve) => setTimeout(resolve, 800))
     ]).then(() => {
       setIsLoading(false);
     });
-
-    // Auto-refresh dashboard news in the background every 15 minutes
-    const intervalId = setInterval(fetchLatestNews, 15 * 60 * 1000);
-
-    return () => clearInterval(intervalId);
   }, []);
 
   const containerVariants = {
@@ -81,6 +83,9 @@ export const Dashboard: React.FC = () => {
         <Loader type="line" count={1} height="36px" style={{ marginBottom: "10px" }} />
         <Loader type="line" count={1} height="18px" style={{ marginBottom: "2rem", width: "60%" }} />
 
+        {/* Morning Briefing Skeleton */}
+        <Loader type="card" count={1} height="130px" style={{ marginBottom: "1.5rem" }} />
+
         {/* 2 columns row 1 skeleton */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem", marginBottom: "1.5rem" }}>
           <Loader type="card" count={2} height="180px" />
@@ -90,12 +95,6 @@ export const Dashboard: React.FC = () => {
         <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
           <Loader type="card" count={1} height="280px" />
           <Loader type="card" count={1} height="280px" />
-        </div>
-
-        {/* 2 columns row 3 skeleton */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: "1.5rem" }}>
-          <Loader type="card" count={1} height="220px" />
-          <Loader type="card" count={1} height="220px" />
         </div>
       </div>
     );
@@ -110,17 +109,17 @@ export const Dashboard: React.FC = () => {
       style={{ padding: "2rem" }}
     >
       {/* Top Banner Row */}
-      <div className="welcome-banner-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "2rem", flexWrap: "wrap", gap: "1rem" }}>
+      <div className="welcome-banner-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
         <div>
           <h1 className="dashboard-title" style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0, fontSize: "28px", fontWeight: "800" }}>
-            Hey, {profile?.full_name || user?.email?.split("@")[0]}{" "}
+            Hey, {profile?.full_name || user?.email?.split("@")[0] || "Trader"}{" "}
             <Badge variant="success" style={{ fontSize: "11px", fontWeight: "750", padding: "2px 6px" }}>
               {profile?.subscription_plan?.toUpperCase() || "FREE"}
             </Badge>
             <Sparkles size={20} className="text-warning-icon" style={{ color: "var(--accent-yellow)" }} />
           </h1>
           <p className="dashboard-subtitle" style={{ color: "var(--text-secondary)", fontSize: "14px", marginTop: "6px", margin: 0 }}>
-            Here is your market summary and trading signals for today.
+            Here is your structural market overview and AI-scored equity signals.
           </p>
         </div>
         <div className="pulse-tag" style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: "20px", padding: "4px 10px", fontSize: "11px", color: "var(--accent-green)", fontWeight: "600" }}>
@@ -131,8 +130,11 @@ export const Dashboard: React.FC = () => {
 
       <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
         
-        {/* ROW 1: AI Market Pulse + Market Overview (Indices) */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.5rem" }} className="responsive-split-row">
+        {/* Morning Briefing Panel */}
+        <MorningBriefing />
+
+        {/* ROW 1: AI Market Pulse + Market Regime Indicator */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: "1.5rem" }} className="responsive-split-row">
           {/* Widget 1: AI Market Pulse */}
           <Card 
             title="AI Market Pulse" 
@@ -153,38 +155,8 @@ export const Dashboard: React.FC = () => {
             </div>
           </Card>
 
-          {/* Widget 2: Market Overview (Indices) */}
-          <Card title="Market Indices" extra={<Activity size={18} style={{ color: "var(--accent-blue)" }} />}>
-            <div className="indices-list" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              <div className="index-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
-                <span className="index-name" style={{ fontSize: "13.5px", fontWeight: "600" }}>NIFTY 50</span>
-                <div className="index-price-group" style={{ textAlign: "right" }}>
-                  <span className="index-price" style={{ fontWeight: "700", display: "block" }}>23,465.60</span>
-                  <span className="index-change pos" style={{ color: "var(--accent-green)", fontSize: "11px", display: "flex", alignItems: "center", gap: "2px", justifyContent: "flex-end" }}>
-                    <TrendingUp size={11} /> +1.24%
-                  </span>
-                </div>
-              </div>
-              <div className="index-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "6px" }}>
-                <span className="index-name" style={{ fontSize: "13.5px", fontWeight: "600" }}>BANK NIFTY</span>
-                <div className="index-price-group" style={{ textAlign: "right" }}>
-                  <span className="index-price" style={{ fontWeight: "700", display: "block" }}>49,852.10</span>
-                  <span className="index-change pos" style={{ color: "var(--accent-green)", fontSize: "11px", display: "flex", alignItems: "center", gap: "2px", justifyContent: "flex-end" }}>
-                    <TrendingUp size={11} /> +0.94%
-                  </span>
-                </div>
-              </div>
-              <div className="index-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span className="index-name" style={{ fontSize: "13.5px", fontWeight: "600" }}>SENSEX</span>
-                <div className="index-price-group" style={{ textAlign: "right" }}>
-                  <span className="index-price" style={{ fontWeight: "700", display: "block" }}>77,150.30</span>
-                  <span className="index-change neg" style={{ color: "var(--accent-red)", fontSize: "11px", display: "flex", alignItems: "center", gap: "2px", justifyContent: "flex-end" }}>
-                    <TrendingDown size={11} /> -0.12%
-                  </span>
-                </div>
-              </div>
-            </div>
-          </Card>
+          {/* Widget 2: Market Regime Indicator */}
+          <RegimeIndicator />
         </div>
 
         {/* ROW 2: Market Radar Heatmap + AI Activity Feed */}
@@ -193,47 +165,40 @@ export const Dashboard: React.FC = () => {
           <ActivityFeed />
         </div>
 
-        {/* ROW 3: Top Opportunities + Latest AI Summarized News */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: "1.5rem" }} className="responsive-split-row">
-          {/* Widget: Top Opportunities */}
-          <Card title="Top Opportunities" extra={<Layers size={18} style={{ color: "var(--accent-yellow)" }} />}>
-            <div className="indices-list" style={{ display: "flex", flexDirection: "column", gap: "12px", marginTop: "0.5rem" }}>
-              <div className="opportunity-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border)", padding: "10px", borderRadius: "8px" }}>
-                <span className="opportunity-ticker" style={{ fontWeight: "750" }}>TCS</span>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <span className="opportunity-price" style={{ fontSize: "13.5px", fontWeight: "600" }}>₹3,845.20</span>
-                  <Badge variant="success">BUY (89)</Badge>
-                </div>
-              </div>
-              <div className="opportunity-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border)", padding: "10px", borderRadius: "8px" }}>
-                <span className="opportunity-ticker" style={{ fontWeight: "750" }}>RELIANCE</span>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <span className="opportunity-price" style={{ fontSize: "13.5px", fontWeight: "600" }}>₹2,950.40</span>
-                  <Badge variant="success">BUY (87)</Badge>
-                </div>
-              </div>
-              <div className="opportunity-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", border: "1px solid var(--border)", padding: "10px", borderRadius: "8px" }}>
-                <span className="opportunity-ticker" style={{ fontWeight: "750" }}>HDFCBANK</span>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-                  <span className="opportunity-price" style={{ fontSize: "13.5px", fontWeight: "600" }}>₹1,560.10</span>
-                  <Badge variant="warning">HOLD (75)</Badge>
-                </div>
-              </div>
+        {/* ROW 3: Opportunity Ranking + Sidebar Timing/Diagnostics */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 1fr", gap: "1.5rem" }} className="responsive-split-row">
+          
+          {/* AI Opportunity Ranking */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "750", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "8px" }}>
+                <Layers size={16} color="var(--accent-green)" /> AI Opportunity Ranking
+              </h3>
+              <Badge variant="success">Decision Support Cards</Badge>
             </div>
-          </Card>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              {topOpportunities.length > 0 ? (
+                topOpportunities.map((opp) => (
+                  <SignalCard key={opp.symbol} aiScore={opp} />
+                ))
+              ) : (
+                <Card style={{ padding: "2rem", textAlign: "center" }}>
+                  <span style={{ color: "var(--text-secondary)" }}>No opportunities found.</span>
+                </Card>
+              )}
+            </div>
+          </div>
 
-          {/* Widget: Latest AI Summarized News */}
-          <Card 
-            title="Latest Intelligence News" 
-            subtitle="Recent impact items"
-            extra={<Newspaper size={18} style={{ color: "var(--text-secondary)" }} />}
-          >
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              {latestNews.map((item) => (
-                <NewsCard key={item.id} item={item} />
-              ))}
-            </div>
-          </Card>
+          {/* Right Sidebar: Timing Leaderboard & Portfolio Diagnostics */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+            {/* Trade Readiness Leaders */}
+            <ReadinessLeaders />
+            
+            {/* Portfolio Doctor */}
+            <PortfolioDoctor />
+          </div>
+          
         </div>
 
         {/* ROW 4: Watchlist Table */}

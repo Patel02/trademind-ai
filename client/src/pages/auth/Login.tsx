@@ -128,6 +128,29 @@ export const Login: React.FC = () => {
               </>
             )}
           </button>
+          
+          {import.meta.env.DEV && (
+            <button 
+              type="button" 
+              onClick={() => {
+                localStorage.setItem("bypass_auth", "true");
+                window.location.reload();
+              }}
+              className="form-button"
+              style={{ 
+                marginTop: "0.75rem", 
+                background: "rgba(16, 185, 129, 0.05)", 
+                border: "1px dashed var(--accent-green)", 
+                color: "var(--accent-green)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "8px"
+              }}
+            >
+              <span>Bypass Auth (Dev Mode)</span>
+            </button>
+          )}
         </form>
 
         <div className="auth-footer">
