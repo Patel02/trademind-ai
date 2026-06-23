@@ -1,4 +1,5 @@
 import { supabase } from "../../../services/supabase";
+import { auditService } from "../../../security/audit.service";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export interface ChartMarker {
@@ -100,6 +101,18 @@ export const markerService = {
     const local = getLocalMarkers();
     local.unshift(marker);
     saveLocalMarkers(local);
+
+    // E2: Log audit event CHART_MARKER_CREATED
+    try {
+      await auditService.logAction("CHART_MARKER_CREATED", "chart_markers", marker.id, {
+        symbol: marker.symbol,
+        marker_type: marker.marker_type,
+        price: marker.price,
+        quantity: marker.quantity
+      });
+    } catch (auditErr) {
+      console.warn("[markerService] Audit logging failed for marker creation.", auditErr);
+    }
 
     return marker;
   },

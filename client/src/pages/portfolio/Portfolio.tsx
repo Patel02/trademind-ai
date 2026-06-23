@@ -6,6 +6,7 @@ import Card from "../../components/ui/Card";
 export const Portfolio: React.FC = () => {
   const [portfolio, setPortfolio] = useState<PaperPortfolio | null>(null);
   const [positions, setPositions] = useState<PaperPosition[]>([]);
+  const [metrics, setMetrics] = useState<Awaited<ReturnType<typeof paperTradingService.getPortfolioMetrics>> | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [sellLoading, setSellLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -13,12 +14,15 @@ export const Portfolio: React.FC = () => {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [portData, posData] = await Promise.all([
+      await paperTradingService.refreshPortfolioValue(); // C1: refresh values first
+      const [portData, posData, metricsData] = await Promise.all([
         paperTradingService.getPortfolio(),
-        paperTradingService.getPositions()
+        paperTradingService.getPositions(),
+        paperTradingService.getPortfolioMetrics() // C2: fetch metrics
       ]);
       setPortfolio(portData);
       setPositions(posData);
+      setMetrics(metricsData);
     } catch (err) {
       console.error("Error loading portfolio data:", err);
     } finally {
@@ -28,6 +32,25 @@ export const Portfolio: React.FC = () => {
 
   useEffect(() => {
     loadData();
+
+    // C1: 60-second auto-refresh interval
+    const interval = setInterval(async () => {
+      try {
+        await paperTradingService.refreshPortfolioValue();
+        const [portData, posData, metricsData] = await Promise.all([
+          paperTradingService.getPortfolio(),
+          paperTradingService.getPositions(),
+          paperTradingService.getPortfolioMetrics()
+        ]);
+        setPortfolio(portData);
+        setPositions(posData);
+        setMetrics(metricsData);
+      } catch (err) {
+        console.warn("Silent portfolio auto-refresh failed:", err);
+      }
+    }, 60000);
+
+    return () => clearInterval(interval);
   }, [loadData]);
 
   const handleClosePosition = async (symbol: string, quantity: number) => {
@@ -67,14 +90,15 @@ export const Portfolio: React.FC = () => {
     }
   };
 
-  // Calculations
-  const startBalance = 1000000.00;
-  const currentTotalVal = portfolio?.total_value ?? startBalance;
-  const balance = portfolio?.balance ?? startBalance;
+  // Calculations (C2: Rich metrics calculation)
+  const startBalance = portfolio?.start_balance ?? 1000000.00;
+  const currentTotalVal = metrics?.totalPortfolioValue ?? portfolio?.total_value ?? startBalance;
+  const balance = metrics?.cashBalance ?? portfolio?.balance ?? startBalance;
   
-  const totalUnrealizedPnL = positions.reduce((sum, pos) => sum + pos.unrealized_pnl, 0);
+  const totalUnrealizedPnL = metrics?.unrealizedPnL ?? positions.reduce((sum, pos) => sum + pos.unrealized_pnl, 0);
+  const realizedPnL = metrics?.realizedPnL ?? 0;
   const totalReturnAmt = currentTotalVal - startBalance;
-  const totalReturnPct = (totalReturnAmt / startBalance) * 100;
+  const totalReturnPct = metrics?.totalReturnPct ?? (totalReturnAmt / startBalance) * 100;
 
   return (
     <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "24px", color: "var(--text-primary)" }}>
@@ -145,7 +169,7 @@ export const Portfolio: React.FC = () => {
       )}
 
       {/* Metrics Row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
         {/* Metric 1: Portfolio Value */}
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", padding: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
@@ -172,7 +196,7 @@ export const Portfolio: React.FC = () => {
           </div>
         </div>
 
-        {/* Metric 3: Today's PnL */}
+        {/* Metric 3: Unrealized Return */}
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", padding: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>Unrealized Return</span>
@@ -194,7 +218,29 @@ export const Portfolio: React.FC = () => {
           </div>
         </div>
 
-        {/* Metric 4: Total Return */}
+        {/* Metric 4: Realized Return */}
+        <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", padding: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>Realized Return</span>
+            <h3
+              style={{
+                fontSize: "24px",
+                fontWeight: "800",
+                margin: "8px 0 0",
+                fontFamily: "monospace",
+                color: realizedPnL >= 0 ? "var(--accent-green)" : "var(--accent-red)"
+              }}
+            >
+              {realizedPnL >= 0 ? "+" : ""}
+              ₹{realizedPnL.toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+            </h3>
+          </div>
+          <div style={{ padding: "10px", borderRadius: "8px", background: realizedPnL >= 0 ? "rgba(16,185,129,0.08)" : "rgba(239,68,68,0.08)" }}>
+            {realizedPnL >= 0 ? <ArrowUpRight size={20} color="var(--accent-green)" /> : <ArrowDownRight size={20} color="var(--accent-red)" />}
+          </div>
+        </div>
+
+        {/* Metric 5: Total Return */}
         <div style={{ background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "12px", padding: "20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <span style={{ fontSize: "11px", fontWeight: "700", textTransform: "uppercase", color: "var(--text-secondary)", letterSpacing: "0.5px" }}>Total Return</span>

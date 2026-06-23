@@ -95,7 +95,8 @@ export const RebalanceSimulator: React.FC<RebalanceSimulatorProps> = ({
           unrealized_pnl: (price - avgPrice) * updated[s],
           realized_pnl: actualPos?.realized_pnl || 0,
           created_at: actualPos?.created_at || new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          status: actualPos?.status || "open" // B3 status field fix
         };
       });
 

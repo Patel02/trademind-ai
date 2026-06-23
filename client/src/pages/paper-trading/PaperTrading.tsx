@@ -625,7 +625,7 @@ export const PaperTrading: React.FC = () => {
                                 {trade.quantity} Shares
                               </Badge>
                               <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-                                {new Date(trade.exit_date).toLocaleDateString([], { month: "short", day: "numeric" })}
+                                {trade.exit_date ? new Date(trade.exit_date).toLocaleDateString([], { month: "short", day: "numeric" }) : "—"}
                               </span>
                             </div>
 
@@ -651,7 +651,7 @@ export const PaperTrading: React.FC = () => {
                                 <div><span style={{ color: "var(--text-secondary)" }}>Avg Entry Price:</span> <strong style={{ color: "#fff" }}>₹{trade.entry_price}</strong></div>
                                 <div><span style={{ color: "var(--text-secondary)" }}>Exit Price:</span> <strong style={{ color: "#fff" }}>₹{trade.exit_price}</strong></div>
                                 <div><span style={{ color: "var(--text-secondary)" }}>Entry Date:</span> <span>{new Date(trade.entry_date).toLocaleDateString()}</span></div>
-                                <div><span style={{ color: "var(--text-secondary)" }}>Exit Date:</span> <span>{new Date(trade.exit_date).toLocaleDateString()}</span></div>
+                                <div><span style={{ color: "var(--text-secondary)" }}>Exit Date:</span> <span>{trade.exit_date ? new Date(trade.exit_date).toLocaleDateString() : "—"}</span></div>
                               </div>
 
                               {/* Signal DNA Snap & AI Score */}

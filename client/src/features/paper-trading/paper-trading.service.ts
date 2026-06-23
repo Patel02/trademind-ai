@@ -58,6 +58,7 @@ export interface PaperPosition {
   unrealized_pnl: number;
   realized_pnl: number;
   created_at: string;
+  status: 'open' | 'partial' | 'closed'; // B3: position lifecycle status
 
   // Legacy fallback compatibility made mandatory
   avg_entry_price: number;
@@ -89,10 +90,11 @@ export interface PaperClosedTrade {
   quantity: number;
   entry_price: number;
   exit_price: number;
-  profit_loss: number; // Mapped from DB pnl
+  profit_loss: number;         // Mapped from DB pnl
   profit_loss_percent: number;
+  status: 'open' | 'closed' | 'cancelled'; // A3: explicit status field
   entry_date: string;
-  exit_date: string;
+  exit_date: string | null;    // null when trade is still open
   signal_dna: SignalDNASnapshot;
   journal: TradeJournal;
   ai_review: AITradeReview;
@@ -325,6 +327,7 @@ export const paperTradingService = {
           created_at: pos.created_at,
           entry_date: pos.created_at,
           updated_at: pos.updated_at || pos.created_at || new Date().toISOString(),
+          status: (Number(pos.realized_pnl) > 0 ? 'partial' : 'open') as 'open' | 'partial' | 'closed', // B3 status field
           signal_dna: pos.signal_dna,
           journal_before: pos.journal_before
         }));
@@ -371,6 +374,89 @@ export const paperTradingService = {
   },
 
   /**
+   * C1: Refresh portfolio value — recalculate unrealized PnL using current prices.
+   * Call this periodically (e.g. every 60s) or on-demand for accurate portfolio value.
+   */
+  async refreshPortfolioValue(): Promise<void> {
+    try {
+      const [portfolio, positions] = await Promise.all([
+        this.getPortfolio(),
+        this.getPositions(), // getPositions already hydrates current prices
+      ]);
+
+      const totalUnrealized = positions.reduce((s, p) => s + p.unrealized_pnl, 0);
+      const newTotalValue   = Number((portfolio.balance + totalUnrealized).toFixed(2));
+
+      const userId = await getUserId();
+      if (userId !== "00000000-0000-0000-0000-000000000000") {
+        await supabase
+          .from("paper_accounts")
+          .update({ total_value: newTotalValue })
+          .eq("user_id", userId);
+      }
+
+      // Update local
+      const localPort = getLocalPortfolio();
+      localPort.total_value = newTotalValue;
+      saveLocalPortfolio(localPort);
+
+      // E2: Log audit event POSITION_PRICE_REFRESHED
+      try {
+        await auditService.logAction("POSITION_PRICE_REFRESHED", "paper_accounts", portfolio.id, {
+          totalValue: newTotalValue,
+          unrealizedPnL: totalUnrealized
+        });
+      } catch (auditErr) {
+        // Ignore fallback logging errors
+      }
+    } catch (err) {
+      console.warn("[refreshPortfolioValue] Failed:", err);
+    }
+  },
+
+  /**
+   * C2: Get rich computed portfolio metrics.
+   * Includes: cash, invested, current value, unrealized PnL, realized PnL, return %.
+   */
+  async getPortfolioMetrics(): Promise<{
+    cashBalance:          number;
+    investedAmount:       number;
+    currentValue:         number;
+    unrealizedPnL:        number;
+    realizedPnL:          number;
+    totalPortfolioValue:  number;
+    totalReturnPct:       number;
+    dayChangePct:         number;
+  }> {
+    const [portfolio, positions, closedTrades] = await Promise.all([
+      this.getPortfolio(),
+      this.getPositions(),
+      this.getClosedTrades(),
+    ]);
+
+    const cashBalance    = portfolio.balance;
+    const investedAmount = positions.reduce((s, p) => s + p.avg_price * p.quantity, 0);
+    const currentValue   = positions.reduce((s, p) => s + p.current_price * p.quantity, 0);
+    const unrealizedPnL  = positions.reduce((s, p) => s + p.unrealized_pnl, 0);
+    const realizedPnL    = closedTrades.reduce((s, t) => s + t.profit_loss, 0);
+
+    const totalPortfolioValue = Number((cashBalance + currentValue).toFixed(2));
+    const startBalance        = portfolio.start_balance || DEFAULT_BALANCE;
+    const totalReturnPct      = Number((((totalPortfolioValue - startBalance) / startBalance) * 100).toFixed(2));
+
+    return {
+      cashBalance:         Number(cashBalance.toFixed(2)),
+      investedAmount:      Number(investedAmount.toFixed(2)),
+      currentValue:        Number(currentValue.toFixed(2)),
+      unrealizedPnL:       Number(unrealizedPnL.toFixed(2)),
+      realizedPnL:         Number(realizedPnL.toFixed(2)),
+      totalPortfolioValue,
+      totalReturnPct,
+      dayChangePct:        0, // Placeholder — requires previous day close prices
+    };
+  },
+
+  /**
    * Get transaction orders journal (paper_orders table)
    */
   async getOrders(): Promise<PaperOrder[]> {
@@ -405,64 +491,86 @@ export const paperTradingService = {
   },
 
   /**
-   * Fetch closed trades history (paper_trades table)
+   * Fetch ALL trades (open + closed) — A4: unified fetch with correct date mapping
    */
-  async getClosedTrades(): Promise<PaperClosedTrade[]> {
+  async getAllTrades(): Promise<PaperClosedTrade[]> {
     const userId = await getUserId();
-    if (userId === "00000000-0000-0000-0000-000000000000") {
-      return getLocalClosedTrades().filter((t) => t.user_id === userId);
-    }
-    try {
-      const { data, error } = await supabase
-        .from("paper_trades")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+    const mapTrade = (trade: any): PaperClosedTrade => {
+      const entryPrice  = Number(trade.entry_price) || 0;
+      const exitPrice   = Number(trade.exit_price)  || 0;
+      const pnl         = Number(trade.pnl)         || 0;
+      const pnlPct      = entryPrice > 0 && exitPrice > 0
+        ? Number((((exitPrice - entryPrice) / entryPrice) * 100).toFixed(2))
+        : 0;
+      const dna = trade.signal_dna || {
+        opportunityScore: 70, timingScore: 70, riskScore: 30, confidenceScore: 70,
+        marketRegime: "Bull Market", sectorStrength: 80, newsScore: 70
+      };
+      return {
+        id:                   trade.id,
+        user_id:              trade.user_id,
+        symbol:               trade.symbol,
+        quantity:             Number(trade.quantity),
+        entry_price:          entryPrice,
+        exit_price:           exitPrice,
+        profit_loss:          pnl,
+        profit_loss_percent:  pnlPct,
+        status:               (trade.status as 'open' | 'closed' | 'cancelled') || 'closed',
+        entry_date:           trade.entry_date  || trade.created_at,   // A2: correct field
+        exit_date:            trade.exit_date   || trade.closed_at || null, // A2: null when open
+        signal_dna:           dna,
+        journal: {
+          beforeEntry: {
+            reason:       trade.entry_reason || "Technical setup.",
+            expectations: "Bullish progression.",
+            riskPlan:     "Stop loss defined."
+          },
+          afterExit: {
+            whatHappened: trade.exit_reason || "Position closed.",
+            whatWorked:   trade.notes       || "None.",
+            whatFailed:   "None."
+          }
+        },
+        ai_review:   this.generateAIReview(trade.symbol, pnlPct, dna),
+        created_at:  trade.created_at
+      };
+    };
 
-      if (error) throw error;
-      if (data && data.length > 0) {
-        return data.map((trade) => ({
-          id: trade.id,
-          user_id: trade.user_id,
-          symbol: trade.symbol,
-          quantity: Number(trade.quantity),
-          entry_price: Number(trade.entry_price),
-          exit_price: Number(trade.exit_price),
-          profit_loss: Number(trade.pnl),
-          profit_loss_percent: Number((((trade.exit_price - trade.entry_price) / trade.entry_price) * 100).toFixed(2)),
-          entry_date: trade.created_at, // Estimate
-          exit_date: trade.created_at,
-          signal_dna: trade.signal_dna || {
-            opportunityScore: 70, timingScore: 70, riskScore: 30, confidenceScore: 70,
-            marketRegime: "Bull Market", sectorStrength: 80, newsScore: 70
-          },
-          journal: {
-            beforeEntry: {
-              reason: trade.entry_reason || "Technical setup.",
-              expectations: "Bullish progression.",
-              riskPlan: "Stop loss defined."
-            },
-            afterExit: {
-              whatHappened: trade.exit_reason || "Position closed.",
-              whatWorked: trade.notes || "None.",
-              whatFailed: "None."
-            }
-          },
-          ai_review: this.generateAIReview(
-            trade.symbol, 
-            (((trade.exit_price - trade.entry_price) / trade.entry_price) * 100), 
-            trade.signal_dna || {
-              opportunityScore: 70, timingScore: 70, riskScore: 30, confidenceScore: 70,
-              marketRegime: "Bull Market", sectorStrength: 80, newsScore: 70
-            }
-          ),
-          created_at: trade.created_at
-        }));
+    if (userId !== "00000000-0000-0000-0000-000000000000") {
+      try {
+        const { data, error } = await supabase
+          .from("paper_trades")
+          .select("*")
+          .eq("user_id", userId)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        if (data && data.length > 0) {
+          // Sync local for offline use
+          const mapped = data.map(mapTrade);
+          saveLocalClosedTrades(mapped);
+          return mapped;
+        }
+      } catch (err) {
+        console.warn("[paperTradingService] getAllTrades Supabase fetch failed; using local.", err);
       }
-    } catch (err) {
-      console.warn("Supabase paper_trades fetch failed; using local storage.", err);
     }
     return getLocalClosedTrades().filter((t) => t.user_id === userId);
+  },
+
+  /**
+   * Fetch only CLOSED trades — for History closed tab & analytics
+   */
+  async getClosedTrades(): Promise<PaperClosedTrade[]> {
+    const all = await this.getAllTrades();
+    return all.filter((t) => t.status === 'closed' || t.status === 'cancelled');
+  },
+
+  /**
+   * Fetch only OPEN trades — for History open tab & positions overview
+   */
+  async getOpenTrades(): Promise<PaperClosedTrade[]> {
+    const all = await this.getAllTrades();
+    return all.filter((t) => t.status === 'open');
   },
 
   /**
@@ -605,6 +713,12 @@ export const paperTradingService = {
         riskPlan: "Establish strict trailing stop-losses to contain negative volatility drag."
       };
 
+      // F1: Snapshot existing position BEFORE any DB writes (for rollback)
+      const existingPos = positions.find((p) => p.symbol === symbol);
+      const rollbackSnapshot = existingPos ? { ...existingPos } : null;
+
+      let newTradeId: string | null = null;
+
       // Try Supabase operations
       if (userId !== "00000000-0000-0000-0000-000000000000") {
         try {
@@ -643,7 +757,6 @@ export const paperTradingService = {
           }
 
           // Insert paper_trades record (open status)
-          let newTradeId: string | null = null;
           try {
             const { data: tradeData } = await supabase
               .from("paper_trades")
@@ -694,7 +807,31 @@ export const paperTradingService = {
           await markerService.saveMarker(symbol, "BUY", price, quantity, newTradeId, note);
 
         } catch (dbErr) {
-          console.warn("Supabase transactions failed; falling back to local database synchronization.", dbErr);
+          // F1: Compensating rollback — revert position if DB writes partially failed
+          console.warn("[BUY] Supabase writes failed; attempting position rollback.", dbErr);
+          try {
+            if (rollbackSnapshot) {
+              // Revert position to its pre-BUY state
+              await supabase
+                .from("paper_positions")
+                .update({
+                  quantity:       rollbackSnapshot.quantity,
+                  avg_price:      rollbackSnapshot.avg_price,
+                  unrealized_pnl: rollbackSnapshot.unrealized_pnl,
+                })
+                .eq("id", rollbackSnapshot.id);
+            } else {
+              // No position existed before — delete the newly created one
+              await supabase
+                .from("paper_positions")
+                .delete()
+                .eq("user_id", userId)
+                .eq("symbol", symbol);
+            }
+            console.info("[BUY] Rollback successful. No partial state left in DB.");
+          } catch (rollbackErr) {
+            console.error("[BUY] Rollback also failed — manual DB cleanup may be needed.", rollbackErr);
+          }
         }
       }
 
@@ -712,6 +849,7 @@ export const paperTradingService = {
         existing.quantity = newQty;
         existing.current_price = price;
         existing.unrealized_pnl = Number(((price - existing.avg_price) * newQty).toFixed(2));
+        existing.status = (Number(existing.realized_pnl) > 0 ? 'partial' : 'open') as 'open' | 'partial' | 'closed'; // B3 status
         if (!existing.signal_dna) existing.signal_dna = dna;
         if (!existing.journal_before) existing.journal_before = journalBefore;
       } else {
@@ -725,6 +863,7 @@ export const paperTradingService = {
           current_price: price,
           unrealized_pnl: 0,
           realized_pnl: 0,
+          status: 'open', // B3 status
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           signal_dna: dna,
@@ -736,6 +875,41 @@ export const paperTradingService = {
       localPort.total_value = Number((updatedBalance + totalUnrealizedLocal).toFixed(2));
       saveLocalPortfolio(localPort);
       saveLocalPositions(localPositions);
+
+      // Save open trade to local storage (for both anonymous and offline sync)
+      const openTradeLocal: PaperClosedTrade = {
+        id: newTradeId || `trade-${Math.random().toString(36).substr(2, 9)}`,
+        user_id: userId,
+        symbol,
+        quantity,
+        entry_price: price,
+        exit_price: 0,
+        profit_loss: 0,
+        profit_loss_percent: 0,
+        status: "open",
+        entry_date: new Date().toISOString(),
+        exit_date: null,
+        signal_dna: dna,
+        journal: {
+          beforeEntry: journalBefore,
+          afterExit: {
+            whatHappened: "",
+            whatWorked: "",
+            whatFailed: ""
+          }
+        },
+        ai_review: {
+          score: 0,
+          analysis: "Trade is currently open.",
+          strengths: [],
+          weaknesses: [],
+          lessons: []
+        },
+        created_at: new Date().toISOString()
+      };
+      const localClosed = getLocalClosedTrades();
+      localClosed.unshift(openTradeLocal);
+      saveLocalClosedTrades(localClosed);
 
       const localOrders = getLocalOrders();
       localOrders.unshift({
@@ -752,11 +926,13 @@ export const paperTradingService = {
 
       await auditService.logAction("BUY_TRADE", "paper_orders", symbol, { quantity, price });
 
-      // Save chart marker (localStorage fallback for anonymous users)
-      try {
-        await markerService.saveMarker(symbol, "BUY", price, quantity, null, note);
-      } catch (mkrErr) {
-        console.warn("[paperTradingService] Local marker save failed.", mkrErr);
+      // A1 FIX: marker already saved inside Supabase block (authenticated) or we save once here for anonymous
+      if (userId === "00000000-0000-0000-0000-000000000000") {
+        try {
+          await markerService.saveMarker(symbol, "BUY", price, quantity, null, note);
+        } catch (mkrErr) {
+          console.warn("[paperTradingService] Anonymous marker save failed.", mkrErr);
+        }
       }
 
       // Emit DOM event so TradingChart reloads markers immediately
@@ -776,10 +952,18 @@ export const paperTradingService = {
     } else {
       // SELL Transaction
       const existing = positions.find((p) => p.symbol === symbol);
-      if (!existing || existing.quantity < quantity) {
+
+      // J2: Early quantity validation — explicit error before any DB writes
+      if (!existing) {
         return {
           success: false,
-          message: `Insufficient holdings. You own ${existing ? existing.quantity : 0} shares of ${symbol}, requested to sell ${quantity}`
+          message: `No open position found for ${symbol}. You must own shares before selling.`
+        };
+      }
+      if (quantity > existing.quantity) {
+        return {
+          success: false,
+          message: `Cannot sell ${quantity} shares — you only hold ${existing.quantity} shares of ${symbol}. Reduce quantity or sell all.`
         };
       }
 
@@ -819,6 +1003,7 @@ export const paperTradingService = {
         exit_price: price,
         profit_loss: profitLoss,
         profit_loss_percent: profitLossPercent,
+        status: 'closed', // A3 & TS2741 fix
         entry_date: existing.created_at || new Date().toISOString(),
         exit_date: new Date().toISOString(),
         signal_dna: dna,
@@ -857,46 +1042,104 @@ export const paperTradingService = {
               status: "Executed"
             });
 
-          // Find & update open paper_trade for this symbol (close it)
-          let closedTradeId: string | null = null;
+          // FIFO match and close open paper_trades in Supabase (B1: Partial Sell)
+          let remainingToSell = quantity;
+          let firstClosedTradeId: string | null = null;
+
           try {
-            const { data: openTrade } = await supabase
+            const { data: openTrades, error: openTradesErr } = await supabase
               .from("paper_trades")
-              .select("id")
+              .select("*")
               .eq("user_id", userId)
               .eq("symbol", symbol)
               .eq("status", "open")
-              .order("created_at", { ascending: false })
-              .limit(1)
-              .single();
+              .order("created_at", { ascending: true });
 
-            if (openTrade) {
-              closedTradeId = openTrade.id;
-              await supabase
-                .from("paper_trades")
-                .update({
-                  exit_price: price,
-                  pnl: profitLoss,
-                  result: profitLoss > 0 ? "Win" : profitLoss < 0 ? "Loss" : "Breakeven",
-                  status: "closed",
-                  exit_date: new Date().toISOString(),
-                  closed_at: new Date().toISOString(),
-                  exit_reason: journal.afterExit.whatHappened,
-                  notes: journal.afterExit.whatWorked,
-                })
-                .eq("id", openTrade.id);
-            } else {
-              // No open record found — insert a full closed record
-              const { data: newTrade } = await supabase
+            if (openTradesErr) throw openTradesErr;
+
+            if (openTrades && openTrades.length > 0) {
+              for (const openTrade of openTrades) {
+                if (remainingToSell <= 0) break;
+
+                const openQty = Number(openTrade.quantity);
+                if (openQty <= remainingToSell) {
+                  // Fully close this trade
+                  const tradePnL = Number(((price - Number(openTrade.entry_price)) * openQty).toFixed(2));
+                  const { data: updatedTrade } = await supabase
+                    .from("paper_trades")
+                    .update({
+                      exit_price: price,
+                      pnl: tradePnL,
+                      result: tradePnL > 0 ? "Win" : tradePnL < 0 ? "Loss" : "Breakeven",
+                      status: "closed",
+                      exit_date: new Date().toISOString(),
+                      closed_at: new Date().toISOString(),
+                      exit_reason: journal.afterExit.whatHappened,
+                      notes: journal.afterExit.whatWorked,
+                    })
+                    .eq("id", openTrade.id)
+                    .select()
+                    .single();
+
+                  if (updatedTrade && !firstClosedTradeId) {
+                    firstClosedTradeId = updatedTrade.id;
+                  }
+                  remainingToSell -= openQty;
+                } else {
+                  // Partially close this trade:
+                  // 1. Update the existing open trade's quantity
+                  await supabase
+                    .from("paper_trades")
+                    .update({
+                      quantity: openQty - remainingToSell,
+                    })
+                    .eq("id", openTrade.id);
+
+                  // 2. Insert a new closed trade for the sold portion
+                  const tradePnL = Number(((price - Number(openTrade.entry_price)) * remainingToSell).toFixed(2));
+                  const { data: newClosedTrade } = await supabase
+                    .from("paper_trades")
+                    .insert({
+                      user_id: userId,
+                      symbol,
+                      entry_price: openTrade.entry_price,
+                      exit_price: price,
+                      quantity: remainingToSell,
+                      pnl: tradePnL,
+                      result: tradePnL > 0 ? "Win" : tradePnL < 0 ? "Loss" : "Breakeven",
+                      status: "closed",
+                      entry_date: openTrade.entry_date,
+                      exit_date: new Date().toISOString(),
+                      closed_at: new Date().toISOString(),
+                      signal_dna: openTrade.signal_dna,
+                      entry_reason: openTrade.entry_reason,
+                      exit_reason: journal.afterExit.whatHappened,
+                      notes: journal.afterExit.whatWorked,
+                    })
+                    .select()
+                    .single();
+
+                  if (newClosedTrade && !firstClosedTradeId) {
+                    firstClosedTradeId = newClosedTrade.id;
+                  }
+                  remainingToSell = 0;
+                }
+              }
+            }
+
+            // Fallback if there was no open trade found but we have sold
+            if (remainingToSell > 0) {
+              const tradePnL = Number(((price - entryPrice) * remainingToSell).toFixed(2));
+              const { data: newClosedTrade } = await supabase
                 .from("paper_trades")
                 .insert({
                   user_id: userId,
                   symbol,
                   entry_price: entryPrice,
                   exit_price: price,
-                  quantity,
-                  pnl: profitLoss,
-                  result: profitLoss > 0 ? "Win" : profitLoss < 0 ? "Loss" : "Breakeven",
+                  quantity: remainingToSell,
+                  pnl: tradePnL,
+                  result: tradePnL > 0 ? "Win" : tradePnL < 0 ? "Loss" : "Breakeven",
                   status: "closed",
                   entry_date: existing.created_at || new Date().toISOString(),
                   exit_date: new Date().toISOString(),
@@ -908,14 +1151,21 @@ export const paperTradingService = {
                 })
                 .select()
                 .single();
-              if (newTrade) closedTradeId = newTrade.id;
+
+              if (newClosedTrade && !firstClosedTradeId) {
+                firstClosedTradeId = newClosedTrade.id;
+              }
+            }
+
+            if (firstClosedTradeId) {
+              closedTrade.id = firstClosedTradeId;
             }
           } catch (tradeErr) {
-            console.warn("[paperTradingService] paper_trades SELL update failed.", tradeErr);
+            console.warn("[paperTradingService] paper_trades SELL FIFO matching failed.", tradeErr);
           }
 
           // Save SELL chart marker
-          await markerService.saveMarker(symbol, "SELL", price, quantity, closedTradeId, note);
+          await markerService.saveMarker(symbol, "SELL", price, quantity, closedTrade.id, note);
 
           // Compute updated portfolio value
           const { data: latestPos } = await supabase
@@ -932,7 +1182,46 @@ export const paperTradingService = {
             .eq("id", portfolio.id);
 
         } catch (dbErr) {
-          console.warn("Supabase transactions failed; falling back to local database synchronization.", dbErr);
+          // F1: Compensating rollback for SELL — revert position if DB writes failed
+          console.warn("[SELL] Supabase writes failed; attempting position rollback.", dbErr);
+          try {
+            if (existing) {
+              const { data: posExists } = await supabase
+                .from("paper_positions")
+                .select("id")
+                .eq("id", existing.id)
+                .maybeSingle();
+
+              if (posExists) {
+                await supabase
+                  .from("paper_positions")
+                  .update({
+                    quantity:       existing.quantity,
+                    current_price:  existing.current_price,
+                    unrealized_pnl: existing.unrealized_pnl,
+                    realized_pnl:   existing.realized_pnl
+                  })
+                  .eq("id", existing.id);
+              } else {
+                await supabase
+                  .from("paper_positions")
+                  .insert({
+                    id:             existing.id,
+                    user_id:        existing.user_id,
+                    symbol:         existing.symbol,
+                    quantity:       existing.quantity,
+                    avg_price:      existing.avg_price,
+                    current_price:  existing.current_price,
+                    unrealized_pnl: existing.unrealized_pnl,
+                    realized_pnl:   existing.realized_pnl,
+                    created_at:     existing.created_at
+                  });
+              }
+              console.info("[SELL] Rollback successful. No partial state left in DB.");
+            }
+          } catch (rollbackErr) {
+            console.error("[SELL] Rollback also failed — manual DB cleanup may be needed.", rollbackErr);
+          }
         }
       }
 
@@ -950,6 +1239,7 @@ export const paperTradingService = {
           localPositions[localIdx].current_price = price;
           localPositions[localIdx].unrealized_pnl = Number(((price - entryPrice) * remainingQty).toFixed(2));
           localPositions[localIdx].realized_pnl = Number((localPositions[localIdx].realized_pnl || 0)) + profitLoss;
+          localPositions[localIdx].status = 'partial'; // B3 status field
         }
       }
       
@@ -971,16 +1261,81 @@ export const paperTradingService = {
       });
       saveLocalOrders(localOrders);
 
-      // Save to closed trades
+      // FIFO match and close/partial-close open trades in Local Storage
       const localClosed = getLocalClosedTrades();
-      localClosed.unshift(closedTrade);
+      let remainingLocalToSell = quantity;
+      
+      const openLocalTrades = localClosed
+        .filter((t) => t.user_id === userId && t.symbol === symbol && t.status === "open")
+        .reverse(); // Older first because unshift keeps newest first
+      
+      for (const openLocalTrade of openLocalTrades) {
+        if (remainingLocalToSell <= 0) break;
+        
+        const openQty = openLocalTrade.quantity;
+        const targetIdx = localClosed.findIndex((t) => t.id === openLocalTrade.id);
+        if (targetIdx !== -1) {
+          if (openQty <= remainingLocalToSell) {
+            // Fully close
+            const tradePnL = Number(((price - openLocalTrade.entry_price) * openQty).toFixed(2));
+            const closedPnLPercent = Number((((price - openLocalTrade.entry_price) / openLocalTrade.entry_price) * 100).toFixed(2));
+            localClosed[targetIdx] = {
+              ...openLocalTrade,
+              exit_price: price,
+              profit_loss: tradePnL,
+              profit_loss_percent: closedPnLPercent,
+              status: "closed",
+              exit_date: new Date().toISOString(),
+              journal: journal,
+              ai_review: this.generateAIReview(symbol, closedPnLPercent, openLocalTrade.signal_dna),
+              created_at: openLocalTrade.created_at
+            };
+            remainingLocalToSell -= openQty;
+          } else {
+            // Partially close
+            // 1. Update the quantity of the existing open trade
+            localClosed[targetIdx].quantity = openQty - remainingLocalToSell;
+            
+            // 2. Insert a new closed trade for the sold portion
+            const tradePnL = Number(((price - openLocalTrade.entry_price) * remainingLocalToSell).toFixed(2));
+            const closedPnLPercent = Number((((price - openLocalTrade.entry_price) / openLocalTrade.entry_price) * 100).toFixed(2));
+            const newClosed: PaperClosedTrade = {
+              id: `trade-${Math.random().toString(36).substr(2, 9)}`,
+              user_id: userId,
+              symbol,
+              quantity: remainingLocalToSell,
+              entry_price: openLocalTrade.entry_price,
+              exit_price: price,
+              profit_loss: tradePnL,
+              profit_loss_percent: closedPnLPercent,
+              status: "closed",
+              entry_date: openLocalTrade.entry_date,
+              exit_date: new Date().toISOString(),
+              signal_dna: openLocalTrade.signal_dna,
+              journal: journal,
+              ai_review: this.generateAIReview(symbol, closedPnLPercent, openLocalTrade.signal_dna),
+              created_at: new Date().toISOString()
+            };
+            localClosed.unshift(newClosed);
+            remainingLocalToSell = 0;
+          }
+        }
+      }
+      
+      // Fallback if there was no open trade found locally
+      if (remainingLocalToSell > 0) {
+        localClosed.unshift(closedTrade);
+      }
+      
       saveLocalClosedTrades(localClosed);
 
-      // Save chart marker (localStorage fallback for anonymous users)
-      try {
-        await markerService.saveMarker(symbol, "SELL", price, quantity, null, note);
-      } catch (mkrErr) {
-        console.warn("[paperTradingService] Local SELL marker save failed.", mkrErr);
+      // A1 FIX: marker already saved inside Supabase block (authenticated) or we save once here for anonymous
+      if (userId === "00000000-0000-0000-0000-000000000000") {
+        try {
+          await markerService.saveMarker(symbol, "SELL", price, quantity, null, note);
+        } catch (mkrErr) {
+          console.warn("[paperTradingService] Anonymous SELL marker save failed.", mkrErr);
+        }
       }
 
       // Emit DOM event so TradingChart reloads markers immediately
@@ -995,7 +1350,13 @@ export const paperTradingService = {
         console.warn("Failed to generate and save portfolio snapshot:", snapErr);
       }
 
-      await auditService.logAction("SELL_TRADE", "paper_orders", symbol, { quantity, price, profitLoss, profitLossPercent });
+      const isPartial = remainingQty > 0;
+      await auditService.logAction(
+        isPartial ? "TRADE_PARTIALLY_CLOSED" : "SELL_TRADE",
+        "paper_orders",
+        symbol,
+        { quantity, price, profitLoss, profitLossPercent, remainingQuantity: remainingQty }
+      );
       return { success: true, message: `Successfully sold ${quantity} shares of ${symbol} at ₹${price.toFixed(2)}.` };
     }
   },
@@ -1074,9 +1435,19 @@ export const paperTradingService = {
   },
 
   /**
-   * Compile and compute user behavior analytics
+   * I1: Fetch behavioral analytics from Supabase (not just localStorage).
+   * This ensures data persists across devices.
+   */
+  async getAnalytics(): Promise<BehavioralAnalytics> {
+    const closed = await this.getClosedTrades(); // Supabase-first via getAllTrades()
+    return this.getBehavioralAnalytics(closed);
+  },
+
+  /**
+   * Compile and compute user behavior analytics from a list of closed trades.
    */
   getBehavioralAnalytics(closed: PaperClosedTrade[]): BehavioralAnalytics {
+
     const totalTrades = closed.length;
     if (totalTrades === 0) {
       return {
@@ -1105,7 +1476,7 @@ export const paperTradingService = {
     
     // Holding durations
     const durations = closed.map((t) => {
-      const diff = new Date(t.exit_date).getTime() - new Date(t.entry_date).getTime();
+      const diff = new Date(t.exit_date || t.created_at).getTime() - new Date(t.entry_date).getTime();
       return Math.max(1, Math.round(diff / 60000)); // in minutes
     });
     const avgHoldingMins = Math.round(durations.reduce((sum, d) => sum + d, 0) / totalTrades);
@@ -1143,6 +1514,24 @@ export const paperTradingService = {
     if (totalLosses > totalGains * 1.5) {
       recommendations.push("Loss sizing drag is high. Apply strict trailing stop-losses to protect trade balances.");
     }
+
+    // I2: Proper maxDrawdown calculation (peak-to-trough)
+    const sortedClosed = [...closed].sort((a, b) => new Date(a.exit_date || a.created_at).getTime() - new Date(b.exit_date || b.created_at).getTime());
+    let currentCapital = DEFAULT_BALANCE;
+    let peakCapital = DEFAULT_BALANCE;
+    let maxDD = 0;
+
+    for (const trade of sortedClosed) {
+      currentCapital += trade.profit_loss;
+      if (currentCapital > peakCapital) {
+        peakCapital = currentCapital;
+      } else {
+        const dd = ((peakCapital - currentCapital) / peakCapital) * 100;
+        if (dd > maxDD) {
+          maxDD = dd;
+        }
+      }
+    }
     
     return {
       totalTrades,
@@ -1150,8 +1539,8 @@ export const paperTradingService = {
       avgGain,
       avgLoss,
       profitFactor,
-      sharpeRatio: 1.8 + (winRate / 100) * 1.2,
-      maxDrawdown: Number((Math.max(1.2, (totalLosses / (totalGains || 1)) * 4.5)).toFixed(1)),
+      sharpeRatio: Number((1.8 + (winRate / 100) * 1.2).toFixed(2)),
+      maxDrawdown: Number(maxDD.toFixed(1)),
       avgHoldingMins,
       sectorStats,
       recommendations

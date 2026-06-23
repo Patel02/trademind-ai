@@ -23,12 +23,16 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   theme = "dark",
   onMarkerClick,
 }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const containerRef   = useRef<HTMLDivElement>(null);
+  const chartRef       = useRef<IChartApi | null>(null);
   const markerLinesRef = useRef<ISeriesApi<"Line">[]>([]);
-  const markersRef = useRef<ChartMarker[]>([]);
-  const candleDataRef = useRef<{ time: Time; open: number; high: number; low: number; close: number }[]>([]);
-  const isLoadingRef = useRef(false);
+  const markersRef     = useRef<ChartMarker[]>([]);
+  const candleDataRef  = useRef<{ time: Time; open: number; high: number; low: number; close: number }[]>([]);
+  const isLoadingRef   = useRef(false);
+
+  // G1: Track the *current* symbol — prevents stale async loads from drawing on wrong chart
+  const activeSymbolRef = useRef(symbol);
+  useEffect(() => { activeSymbolRef.current = symbol; }, [symbol]);
 
   // ── Helper: convert ISO string to Unix seconds ────────────────────────────
   const toUnixSec = (iso: string): number =>
@@ -93,12 +97,24 @@ export const TradingChart: React.FC<TradingChartProps> = ({
   );
 
   // ── Load markers from DB / localStorage and draw ─────────────────────────
-  const loadAndDrawMarkers = useCallback(async () => {
+  const loadAndDrawMarkers = useCallback(async (requestedSymbol?: string) => {
     if (isLoadingRef.current) return;
     isLoadingRef.current = true;
     try {
-      const cleanSymbol = symbol.includes(":") ? symbol.split(":")[1] : symbol;
+      const cleanSymbol = (requestedSymbol ?? symbol)
+        .includes(":") ? (requestedSymbol ?? symbol).split(":")[1] : (requestedSymbol ?? symbol);
+
       const markers = await markerService.getMarkersForSymbol(cleanSymbol);
+
+      // G1: Stale-check — discard if symbol changed while we were fetching
+      const activeClean = activeSymbolRef.current.includes(":")
+        ? activeSymbolRef.current.split(":")[1]
+        : activeSymbolRef.current;
+      if (cleanSymbol.toUpperCase() !== activeClean.toUpperCase()) {
+        console.debug(`[TradingChart] Discarding stale markers for ${cleanSymbol} (active: ${activeClean})`);
+        return;
+      }
+
       drawMarkers(markers);
     } catch (err) {
       console.warn("[TradingChart] Failed to load markers:", err);
@@ -106,6 +122,7 @@ export const TradingChart: React.FC<TradingChartProps> = ({
       isLoadingRef.current = false;
     }
   }, [symbol, drawMarkers]);
+
 
   // ── Main chart setup effect ───────────────────────────────────────────────
   useEffect(() => {
