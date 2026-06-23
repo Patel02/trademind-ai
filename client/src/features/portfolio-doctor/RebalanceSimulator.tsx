@@ -14,13 +14,15 @@ interface RebalanceSimulatorProps {
   positions: PaperPosition[];
   onSimulationUpdate: (simulatedDiag: PortfolioDiagnosis | null) => void;
   stockPrices: Record<string, number>;
+  goal?: "Conservative" | "Balanced" | "Aggressive";
 }
 
 export const RebalanceSimulator: React.FC<RebalanceSimulatorProps> = ({
   portfolio,
   positions,
   onSimulationUpdate,
-  stockPrices
+  stockPrices,
+  goal = "Balanced"
 }) => {
   const allSymbols = ["TCS", "RELIANCE", "INFY", "HDFCBANK"];
   const totalNAV = portfolio.balance + positions.reduce((sum, p) => sum + p.quantity * p.current_price, 0);
@@ -81,20 +83,26 @@ export const RebalanceSimulator: React.FC<RebalanceSimulatorProps> = ({
       .map((s) => {
         const price = stockPrices[s] || 1000.00;
         const actualPos = positions.find((p) => p.symbol === s);
+        const avgPrice = actualPos?.avg_entry_price || price;
         return {
           id: actualPos?.id || `sim-pos-${s}`,
           user_id: portfolio.user_id,
           symbol: s,
           quantity: updated[s],
-          avg_entry_price: actualPos?.avg_entry_price || price,
+          avg_entry_price: avgPrice,
+          avg_price: avgPrice,
           current_price: price,
+          unrealized_pnl: (price - avgPrice) * updated[s],
+          realized_pnl: actualPos?.realized_pnl || 0,
+          created_at: actualPos?.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
       });
 
     const simulatedDiag = portfolioDoctorService.diagnosePortfolio(
       simulatedPortfolio,
-      simulatedPositions
+      simulatedPositions,
+      goal
     );
 
     onSimulationUpdate(simulatedDiag);

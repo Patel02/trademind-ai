@@ -19,6 +19,11 @@ import Watchlist from "./pages/watchlist/Watchlist";
 import PaperTrading from "./pages/paper-trading/PaperTrading";
 import Profile from "./pages/profile/Profile";
 import PortfolioDoctorPage from "./pages/portfolio-doctor/PortfolioDoctor";
+import TradePage from "./app/trade/[symbol]/page";
+import Portfolio from "./pages/portfolio/Portfolio";
+import History from "./pages/history/History";
+
+import RoleGuard from "./security/RoleGuard";
 
 export const App: React.FC = () => {
   return (
@@ -38,11 +43,29 @@ export const App: React.FC = () => {
               <Route path="/analysis" element={<Analysis />} />
               <Route path="/signals" element={<Signals />} />
               <Route path="/signals/performance" element={<Performance />} />
-              <Route path="/admin/signals" element={<AdminSignals />} />
+              <Route 
+                path="/admin/signals" 
+                element={
+                  <RoleGuard allowedRoles={["ADMIN", "SUPER_ADMIN"]}>
+                    <AdminSignals />
+                  </RoleGuard>
+                } 
+              />
               <Route path="/news" element={<News />} />
               <Route path="/watchlist" element={<Watchlist />} />
               <Route path="/paper-trading" element={<PaperTrading />} />
-              <Route path="/portfolio-doctor" element={<PortfolioDoctorPage />} />
+              <Route path="/portfolio" element={<Portfolio />} />
+              <Route path="/history" element={<History />} />
+              <Route path="/trade" element={<Navigate to="/trade/TCS" replace />} />
+              <Route path="/trade/:symbol" element={<TradePage />} />
+              <Route 
+                path="/portfolio/doctor" 
+                element={
+                  <RoleGuard allowedRoles={["FREE_USER", "PREMIUM_USER", "ADMIN", "SUPER_ADMIN"]}>
+                    <PortfolioDoctorPage />
+                  </RoleGuard>
+                } 
+              />
               <Route path="/profile" element={<Profile />} />
             </Route>
           </Route>

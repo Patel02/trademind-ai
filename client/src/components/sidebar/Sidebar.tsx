@@ -15,7 +15,10 @@ import {
   Sparkles,
   Activity,
   ShieldCheck,
-  HeartPulse
+  HeartPulse,
+  CandlestickChart,
+  Briefcase,
+  History
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -41,7 +44,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { name: "News", path: "/news", icon: Newspaper },
     { name: "Watchlist", path: "/watchlist", icon: Bookmark },
     { name: "Paper Trading", path: "/paper-trading", icon: Dices },
-    { name: "Portfolio Doctor", path: "/portfolio-doctor", icon: HeartPulse },
+    { name: "Portfolio", path: "/portfolio", icon: Briefcase },
+    { name: "Trade History", path: "/history", icon: History },
+    { name: "Trade Workspace", path: "/trade/TCS", icon: CandlestickChart },
+    { name: "Portfolio Doctor", path: "/portfolio/doctor", icon: HeartPulse },
     { name: "Profile", path: "/profile", icon: User },
   ];
 
