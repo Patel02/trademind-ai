@@ -503,9 +503,10 @@ export const paperTradingService = {
       const pnlPct      = entryPrice > 0 && exitPrice > 0
         ? Number((((exitPrice - entryPrice) / entryPrice) * 100).toFixed(2))
         : 0;
-      const dna = trade.signal_dna || {
+      const dna: SignalDNASnapshot = trade.signal_dna || {
         opportunityScore: 70, timingScore: 70, riskScore: 30, confidenceScore: 70,
-        marketRegime: "Bull Market", sectorStrength: 80, newsScore: 70
+        marketRegime: "Bull Market", sectorStrength: 80, newsScore: 70,
+        setupType: "Bullish Breakout"
       };
       return {
         id:                   trade.id,
@@ -985,9 +986,10 @@ export const paperTradingService = {
       const profitLoss = Number(((price - entryPrice) * quantity).toFixed(2));
       const profitLossPercent = Number((((price - entryPrice) / entryPrice) * 100).toFixed(2));
       
-      const dna = existing.signal_dna || {
+      const dna: SignalDNASnapshot = existing.signal_dna || {
         opportunityScore: 75, timingScore: 70, riskScore: 35, confidenceScore: 80,
-        marketRegime: "Bull Market", sectorStrength: 80, newsScore: 75
+        marketRegime: "Bull Market", sectorStrength: 80, newsScore: 75,
+        setupType: "Bullish Breakout"
       };
 
       const journal: TradeJournal = {
