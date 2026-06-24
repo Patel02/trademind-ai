@@ -27,6 +27,7 @@ import {
   portfolioDoctorService, 
   type PortfolioDiagnosis,
   type StressTestResult,
+  type PortfolioAlert,
   stockSectors
 } from "../../features/portfolio-doctor/portfolio-doctor.service";
 import RebalanceSimulator from "../../features/portfolio-doctor/RebalanceSimulator";
@@ -57,8 +58,10 @@ export const PortfolioDoctorPage: React.FC = () => {
   // Simulation & Stress Test States
   const [simulatedDiag, setSimulatedDiag] = useState<PortfolioDiagnosis | null>(null);
   const [stressResult, setStressResult] = useState<StressTestResult | null>(null);
-  const [history, setHistory] = useState<{ id: string; health_score: number; risk_score: number; diversification_score: number; created_at: string }[]>([]);
+  const [history, setHistory] = useState<{ id: string; health_score: number; risk_score: number; diversification_score: number; sector_score: number; created_at: string }[]>([]);
   const [stressTestLogs, setStressTestLogs] = useState<{ id: string; scenario: string; expected_loss: number; created_at: string }[]>([]);
+  const [alerts, setAlerts] = useState<PortfolioAlert[]>([]);
+  const [recommendations, setRecommendations] = useState<any[]>([]);
 
   const loadData = async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -93,6 +96,24 @@ export const PortfolioDoctorPage: React.FC = () => {
         const logs = await portfolioDoctorService.getStressTestLogs();
         setStressTestLogs(logs);
       }
+
+      // Sync and load alerts and recommendations
+      if (port && pos) {
+        await portfolioDoctorService.syncAlerts(port, pos, goal);
+        const activeAlts = await portfolioDoctorService.getAlerts();
+        setAlerts(activeAlts);
+
+        const diag = portfolioDoctorService.diagnosePortfolio(port, pos, goal);
+        const dbRecs = await portfolioDoctorService.getRecommendations();
+        for (const sug of diag.suggestions) {
+          const exists = dbRecs.some(r => r.recommendation === sug.text);
+          if (!exists) {
+            await portfolioDoctorService.saveRecommendation(sug.text, sug.priority);
+          }
+        }
+        const updatedRecs = await portfolioDoctorService.getRecommendations();
+        setRecommendations(updatedRecs);
+      }
       
     } catch (err) {
       console.error("Failed to load portfolio doctor details", err);
@@ -112,8 +133,24 @@ export const PortfolioDoctorPage: React.FC = () => {
     
     try {
       await auditService.logAction("UPDATE_PORTFOLIO_GOALS", "portfolio", newGoal, { goal: newGoal });
-    } catch {
-      // Fail silently
+      if (portfolio && positions) {
+        await portfolioDoctorService.syncAlerts(portfolio, positions, newGoal);
+        const activeAlts = await portfolioDoctorService.getAlerts();
+        setAlerts(activeAlts);
+
+        const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, newGoal);
+        const dbRecs = await portfolioDoctorService.getRecommendations();
+        for (const sug of diag.suggestions) {
+          const exists = dbRecs.some(r => r.recommendation === sug.text);
+          if (!exists) {
+            await portfolioDoctorService.saveRecommendation(sug.text, sug.priority);
+          }
+        }
+        const updatedRecs = await portfolioDoctorService.getRecommendations();
+        setRecommendations(updatedRecs);
+      }
+    } catch (err) {
+      console.warn("Failed to update goal metrics:", err);
     }
   };
 
@@ -151,7 +188,6 @@ export const PortfolioDoctorPage: React.FC = () => {
     riskIndex,
     sectorAllocations,
     stockAllocations,
-    suggestions,
     composition,
     concentrationRisk,
     behaviorAnalytics,
@@ -177,12 +213,7 @@ export const PortfolioDoctorPage: React.FC = () => {
     setStressResult(null);
   };
 
-  // Smart Alerts triggers (adapted based on active diagnostics and current goal limits)
-  const isItOverweight = sectorAllocations.some((s) => s.sector === "IT Services" && s.allocationPct > (goal === "Conservative" ? 30 : goal === "Aggressive" ? 50 : 40));
-  const isCashLow = cashPct < (goal === "Conservative" ? 20 : goal === "Aggressive" ? 5 : 10);
-  const isRiskHigh = riskIndex === "High";
-  const isDiversificationFalling = diversificationScore < 50;
-  const hasAlerts = isItOverweight || isCashLow || isRiskHigh || isDiversificationFalling;
+
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "var(--accent-green)";
@@ -228,15 +259,27 @@ export const PortfolioDoctorPage: React.FC = () => {
       return `${x},${y}`;
     });
 
+    const sectorPoints = history.map((item, idx) => {
+      const score = item.sector_score !== undefined ? item.sector_score : 85;
+      const x = padding + (idx / (history.length - 1)) * (width - padding * 2);
+      const y = height - padding - ((score - minVal) / valRange) * (height - padding * 2);
+      return `${x},${y}`;
+    });
+
     const pathData = `M ${points.join(" L ")}`;
+    const sectorPathData = `M ${sectorPoints.join(" L ")}`;
 
     return (
       <div style={{ width: "100%", overflowX: "hidden", marginTop: "0.5rem" }}>
         <svg viewBox={`0 0 ${width} ${height}`} width="100%" height={height} style={{ display: "block" }}>
           <defs>
             <linearGradient id="healthGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent-green)" stopOpacity="0.2" />
+              <stop offset="0%" stopColor="var(--accent-green)" stopOpacity="0.15" />
               <stop offset="100%" stopColor="var(--accent-green)" stopOpacity="0" />
+            </linearGradient>
+            <linearGradient id="sectorGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent-blue)" stopOpacity="0.15" />
+              <stop offset="100%" stopColor="var(--accent-blue)" stopOpacity="0" />
             </linearGradient>
           </defs>
 
@@ -244,11 +287,11 @@ export const PortfolioDoctorPage: React.FC = () => {
           <line x1={padding} y1={padding} x2={width - padding} y2={padding} stroke="rgba(255,255,255,0.02)" strokeDasharray="3" />
           <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.04)" />
 
+          {/* Health line fill & stroke */}
           <path 
             d={`${pathData} L ${width - padding},${height - padding} L ${padding},${height - padding} Z`} 
             fill="url(#healthGrad)" 
           />
-
           <path 
             d={pathData} 
             fill="none" 
@@ -257,17 +300,32 @@ export const PortfolioDoctorPage: React.FC = () => {
             style={{ filter: "drop-shadow(0px 2px 4px rgba(16, 185, 129, 0.3))" }}
           />
 
+          {/* Sector line fill & stroke */}
+          <path 
+            d={`${sectorPathData} L ${width - padding},${height - padding} L ${padding},${height - padding} Z`} 
+            fill="url(#sectorGrad)" 
+          />
+          <path 
+            d={sectorPathData} 
+            fill="none" 
+            stroke="var(--accent-blue)" 
+            strokeWidth="2" 
+            strokeDasharray="3 3"
+            style={{ filter: "drop-shadow(0px 2px 4px rgba(59, 130, 246, 0.3))" }}
+          />
+
+          {/* Health points */}
           {history.map((item, idx) => {
             const score = item.health_score !== undefined ? item.health_score : (item as any).portfolio_score;
             const coord = points[idx].split(",");
             const cx = parseFloat(coord[0]);
             const cy = parseFloat(coord[1]);
             return (
-              <g key={item.id}>
+              <g key={`health-pt-${item.id}`}>
                 <circle 
                   cx={cx} 
                   cy={cy} 
-                  r="3.5" 
+                  r="3" 
                   fill="#fff" 
                   stroke="var(--accent-green)" 
                   strokeWidth="1.5" 
@@ -286,13 +344,41 @@ export const PortfolioDoctorPage: React.FC = () => {
             );
           })}
 
+          {history.map((item, idx) => {
+            const coord = sectorPoints[idx].split(",");
+            const cx = parseFloat(coord[0]);
+            const cy = parseFloat(coord[1]);
+            return (
+              <g key={`sector-pt-${item.id}`}>
+                <circle 
+                  cx={cx} 
+                  cy={cy} 
+                  r="2.5" 
+                  fill="#fff" 
+                  stroke="var(--accent-blue)" 
+                  strokeWidth="1" 
+                />
+              </g>
+            );
+          })}
+
           <text x={padding} y={height - 4} fill="var(--text-secondary)" fontSize="9" fontWeight="600">
             Initial ({new Date(history[0].created_at).toLocaleDateString([], { month: "short", day: "numeric" })})
           </text>
-          <text x={width - padding - 80} y={height - 4} fill="var(--accent-green)" fontSize="9" fontWeight="700" textAnchor="end">
-            Latest Score Trend
+          <text x={width - padding} y={height - 4} fill="var(--text-secondary)" fontSize="9" fontWeight="600" textAnchor="end">
+            Latest Snapshot
           </text>
         </svg>
+        <div style={{ display: "flex", gap: "12px", justifyContent: "center", marginTop: "8px", fontSize: "10px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <span style={{ display: "inline-block", width: "12px", height: "3px", background: "var(--accent-green)" }}></span>
+            <span style={{ color: "var(--text-secondary)" }}>Health Score</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <span style={{ display: "inline-block", width: "12px", height: "3px", borderTop: "2px dashed var(--accent-blue)" }}></span>
+            <span style={{ color: "var(--text-secondary)" }}>Sector Balance</span>
+          </div>
+        </div>
       </div>
     );
   };
@@ -445,7 +531,7 @@ export const PortfolioDoctorPage: React.FC = () => {
         )}
 
         {/* Smart Alerts */}
-        {hasAlerts && (
+        {alerts.filter(a => a.status === "active").length > 0 && (
           <div style={{
             display: "flex",
             flexDirection: "column",
@@ -458,29 +544,52 @@ export const PortfolioDoctorPage: React.FC = () => {
           }}>
             <h4 style={{ margin: "0 0 4px 0", fontSize: "13px", fontWeight: "750", color: "var(--accent-red)", display: "flex", alignItems: "center", gap: "8px" }}>
               <AlertTriangle size={15} />
-              <span>Smart Alerts</span>
+              <span>Smart Alerts Ledger</span>
             </h4>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-              {isItOverweight && (
-                <Badge variant="danger" style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 8px", fontSize: "11.5px" }}>
-                  IT Exposure Above {goal === "Conservative" ? 30 : goal === "Aggressive" ? 50 : 40}%
-                </Badge>
-              )}
-              {isCashLow && (
-                <Badge variant="danger" style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 8px", fontSize: "11.5px" }}>
-                  Cash Allocation Below {goal === "Conservative" ? 20 : goal === "Aggressive" ? 5 : 10}%
-                </Badge>
-              )}
-              {isRiskHigh && (
-                <Badge variant="danger" style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 8px", fontSize: "11.5px" }}>
-                  Portfolio Risk Increased
-                </Badge>
-              )}
-              {isDiversificationFalling && (
-                <Badge variant="warning" style={{ display: "flex", alignItems: "center", gap: "4px", padding: "4px 8px", fontSize: "11.5px" }}>
-                  Diversification Falling
-                </Badge>
-              )}
+            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              {alerts.filter(a => a.status === "active").map((alt) => (
+                <div 
+                  key={alt.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    background: "rgba(239, 68, 68, 0.02)",
+                    border: "1px solid rgba(239, 68, 68, 0.08)",
+                    borderRadius: "6px",
+                    padding: "8px 12px",
+                    fontSize: "12.5px"
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <Badge variant="danger" style={{ fontSize: "8.5px", textTransform: "uppercase" }}>
+                      {alt.alert_type}
+                    </Badge>
+                    <span style={{ color: "var(--text-secondary)" }}>{alt.message}</span>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await portfolioDoctorService.updateAlertStatus(alt.id, "dismissed");
+                      const activeAlts = await portfolioDoctorService.getAlerts();
+                      setAlerts(activeAlts);
+                    }}
+                    style={{
+                      background: "rgba(255,255,255,0.05)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "4px",
+                      padding: "2px 8px",
+                      color: "var(--text-secondary)",
+                      fontSize: "10.5px",
+                      cursor: "pointer",
+                      transition: "all 0.2s"
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.1)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -885,32 +994,83 @@ export const PortfolioDoctorPage: React.FC = () => {
             {/* Section 7: AI Recommendations */}
             <Card 
               title="AI Recommendations Plan" 
-              subtitle="Dynamic advisory checklist generated in real-time"
+              subtitle="Persistent database-backed advisory ledger"
               extra={<Lightbulb size={18} color="var(--accent-yellow)" />}
             >
-              <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                {suggestions.map((item) => (
-                  <div 
-                    key={item.id} 
-                    style={{ 
-                      background: "rgba(255,255,255,0.015)", 
-                      border: "1px solid var(--border)", 
-                      borderRadius: "8px", 
-                      padding: "10px 14px",
-                      display: "flex",
-                      alignItems: "flex-start",
-                      gap: "10px",
-                      borderColor: item.type === "warning" ? "rgba(239, 68, 68, 0.15)" : item.type === "success" ? "rgba(16, 185, 129, 0.15)" : "var(--border)"
-                    }}
-                  >
-                    <Badge variant={item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "success"} style={{ fontSize: "8.5px", padding: "2px 4px", flexShrink: 0, textTransform: "uppercase" }}>
-                      {item.priority}
-                    </Badge>
-                    <span style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.4" }}>
-                      {item.text}
-                    </span>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {recommendations.length === 0 ? (
+                  <div style={{ padding: "16px", textTransform: "uppercase", fontSize: "11px", color: "var(--text-secondary)", textAlign: "center" }}>
+                    No suggestions generated yet. Deploy capital to analyze risk profiles.
                   </div>
-                ))}
+                ) : (
+                  recommendations.map((item) => (
+                    <div 
+                      key={item.id} 
+                      style={{ 
+                        background: item.status === "implemented" ? "rgba(16, 185, 129, 0.01)" : item.status === "dismissed" ? "rgba(255,255,255,0.01)" : "rgba(255,255,255,0.015)", 
+                        border: "1px solid var(--border)", 
+                        borderRadius: "8px", 
+                        padding: "12px 14px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "10px",
+                        opacity: item.status === "dismissed" ? 0.5 : 1,
+                        borderColor: item.status === "implemented" ? "rgba(16, 185, 129, 0.15)" : item.status === "dismissed" ? "var(--border)" : item.priority === "high" ? "rgba(239, 68, 68, 0.15)" : "var(--border)"
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", gap: "6px" }}>
+                          <Badge variant={item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "success"} style={{ fontSize: "8.5px", padding: "2px 4px", textTransform: "uppercase" }}>
+                            {item.priority}
+                          </Badge>
+                          <Badge variant={item.status === "implemented" ? "success" : item.status === "dismissed" ? "info" : "warning"} style={{ fontSize: "8.5px", padding: "2px 4px", textTransform: "uppercase" }}>
+                            {item.status}
+                          </Badge>
+                        </div>
+                        
+                        {item.status === "active" && (
+                          <div style={{ display: "flex", gap: "6px" }}>
+                            <button
+                              onClick={async () => {
+                                await portfolioDoctorService.updateRecommendationStatus(item.id, "implemented");
+                                const updated = await portfolioDoctorService.getRecommendations();
+                                setRecommendations(updated);
+                              }}
+                              style={{ background: "rgba(16, 185, 129, 0.1)", border: "1px solid rgba(16,185,129,0.2)", borderRadius: "4px", padding: "2px 6px", color: "var(--accent-green)", fontSize: "10px", fontWeight: "700", cursor: "pointer" }}
+                            >
+                              Resolve
+                            </button>
+                            <button
+                              onClick={async () => {
+                                await portfolioDoctorService.updateRecommendationStatus(item.id, "dismissed");
+                                const updated = await portfolioDoctorService.getRecommendations();
+                                setRecommendations(updated);
+                              }}
+                              style={{ background: "rgba(255,255,255,0.05)", border: "1px solid var(--border)", borderRadius: "4px", padding: "2px 6px", color: "var(--text-secondary)", fontSize: "10px", cursor: "pointer" }}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        )}
+                        {item.status !== "active" && (
+                          <button
+                            onClick={async () => {
+                              await portfolioDoctorService.updateRecommendationStatus(item.id, "active");
+                              const updated = await portfolioDoctorService.getRecommendations();
+                              setRecommendations(updated);
+                            }}
+                            style={{ background: "transparent", border: "none", color: "var(--accent-blue)", fontSize: "10px", textDecoration: "underline", cursor: "pointer" }}
+                          >
+                            Re-open
+                          </button>
+                        )}
+                      </div>
+                      <span style={{ fontSize: "13px", color: item.status === "implemented" ? "var(--accent-green)" : "var(--text-secondary)", lineHeight: "1.4" }}>
+                        {item.recommendation}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </Card>
 

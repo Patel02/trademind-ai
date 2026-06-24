@@ -80,6 +80,15 @@ export interface StressTestResult {
   recommendations: string[];
 }
 
+export interface PortfolioAlert {
+  id: string;
+  user_id: string;
+  alert_type: string;
+  message: string;
+  status: "active" | "dismissed";
+  created_at: string;
+}
+
 export const stockSectors: Record<string, { sector: string; color: string }> = {
   TCS: { sector: "IT Services", color: "var(--accent-yellow)" },
   INFY: { sector: "IT Services", color: "var(--accent-yellow)" },
@@ -588,6 +597,7 @@ export const portfolioDoctorService = {
         health_score: diag.healthScore,
         risk_score: diag.riskScore,
         diversification_score: diag.diversificationScore,
+        sector_score: diag.sectorBalanceScore,
         created_at: new Date().toISOString()
       });
       localStorage.setItem("trademind_portfolio_snapshots_v2", JSON.stringify(snapshots));
@@ -601,7 +611,8 @@ export const portfolioDoctorService = {
           user_id: userId,
           health_score: diag.healthScore,
           risk_score: diag.riskScore,
-          diversification_score: diag.diversificationScore
+          diversification_score: diag.diversificationScore,
+          sector_score: diag.sectorBalanceScore
         });
     } catch (err) {
       console.warn("Failed to save portfolio snapshot to database, skipping.", err);
@@ -611,7 +622,7 @@ export const portfolioDoctorService = {
   /**
    * Fetch portfolio snapshots history chronologically.
    */
-  async getSnapshotHistory(): Promise<{ id: string; health_score: number; risk_score: number; diversification_score: number; created_at: string }[]> {
+  async getSnapshotHistory(): Promise<{ id: string; health_score: number; risk_score: number; diversification_score: number; sector_score: number; created_at: string }[]> {
     const userId = await getUserId();
     if (userId === "00000000-0000-0000-0000-000000000000") {
       const stored = localStorage.getItem("trademind_portfolio_snapshots_v2");
@@ -621,6 +632,7 @@ export const portfolioDoctorService = {
         health_score: Number(s.health_score !== undefined ? s.health_score : s.portfolio_score),
         risk_score: Number(s.risk_score),
         diversification_score: Number(s.diversification_score),
+        sector_score: Number(s.sector_score !== undefined ? s.sector_score : 85),
         created_at: s.created_at
       }));
     }
@@ -636,6 +648,7 @@ export const portfolioDoctorService = {
         health_score: Number(snap.health_score !== undefined ? snap.health_score : snap.portfolio_score),
         risk_score: Number(snap.risk_score),
         diversification_score: Number(snap.diversification_score),
+        sector_score: Number(snap.sector_score !== undefined ? snap.sector_score : 85),
         created_at: snap.created_at
       }));
     } catch (err) {
@@ -647,6 +660,7 @@ export const portfolioDoctorService = {
         health_score: Number(s.health_score !== undefined ? s.health_score : s.portfolio_score),
         risk_score: Number(s.risk_score),
         diversification_score: Number(s.diversification_score),
+        sector_score: Number(s.sector_score !== undefined ? s.sector_score : 85),
         created_at: s.created_at
       }));
     }
@@ -665,6 +679,7 @@ export const portfolioDoctorService = {
         user_id: userId,
         recommendation,
         priority,
+        status: "active",
         created_at: new Date().toISOString()
       });
       localStorage.setItem("trademind_portfolio_recommendations_v2", JSON.stringify(items));
@@ -676,7 +691,8 @@ export const portfolioDoctorService = {
         .insert({
           user_id: userId,
           recommendation,
-          priority
+          priority,
+          status: "active"
         });
     } catch (err) {
       console.warn("Failed to save portfolio recommendation to DB", err);
@@ -686,11 +702,18 @@ export const portfolioDoctorService = {
   /**
    * Fetch recommendations chronologically
    */
-  async getRecommendations(): Promise<{ id: string; recommendation: string; priority: string; created_at: string }[]> {
+  async getRecommendations(): Promise<{ id: string; recommendation: string; priority: string; status: string; created_at: string }[]> {
     const userId = await getUserId();
     if (userId === "00000000-0000-0000-0000-000000000000") {
       const stored = localStorage.getItem("trademind_portfolio_recommendations_v2");
-      return stored ? JSON.parse(stored) : [];
+      const items = stored ? JSON.parse(stored) : [];
+      return items.map((i: any) => ({
+        id: i.id,
+        recommendation: i.recommendation,
+        priority: i.priority,
+        status: i.status || "active",
+        created_at: i.created_at
+      }));
     }
     try {
       const { data, error } = await supabase
@@ -699,11 +722,227 @@ export const portfolioDoctorService = {
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
+      return (data || []).map((r: any) => ({
+        id: r.id,
+        recommendation: r.recommendation,
+        priority: r.priority,
+        status: r.status || "active",
+        created_at: r.created_at
+      }));
     } catch (err) {
       console.warn("Failed to fetch recommendations from DB, using local storage", err);
       const stored = localStorage.getItem("trademind_portfolio_recommendations_v2");
-      return stored ? JSON.parse(stored) : [];
+      const items = stored ? JSON.parse(stored) : [];
+      return items.map((i: any) => ({
+        id: i.id,
+        recommendation: i.recommendation,
+        priority: i.priority,
+        status: i.status || "active",
+        created_at: i.created_at
+      }));
+    }
+  },
+
+  /**
+   * Update recommendation status (active, implemented, dismissed)
+   */
+  async updateRecommendationStatus(id: string, status: "active" | "implemented" | "dismissed"): Promise<void> {
+    const userId = await getUserId();
+    if (userId === "00000000-0000-0000-0000-000000000000") {
+      const stored = localStorage.getItem("trademind_portfolio_recommendations_v2");
+      const items = stored ? JSON.parse(stored) : [];
+      const idx = items.findIndex((i: any) => i.id === id);
+      if (idx !== -1) {
+        items[idx].status = status;
+        localStorage.setItem("trademind_portfolio_recommendations_v2", JSON.stringify(items));
+      }
+      return;
+    }
+    try {
+      await supabase
+        .from("portfolio_recommendations")
+        .update({ status })
+        .eq("id", id);
+    } catch (err) {
+      console.warn("Failed to update recommendation status in DB", err);
+    }
+  },
+
+  /**
+   * Save a portfolio alert to DB/local storage.
+   */
+  async saveAlert(alertType: string, message: string): Promise<void> {
+    const userId = await getUserId();
+    if (userId === "00000000-0000-0000-0000-000000000000") {
+      const stored = localStorage.getItem("trademind_portfolio_alerts_v2");
+      const items = stored ? JSON.parse(stored) : [];
+      
+      const exists = items.some((i: any) => i.alert_type === alertType && i.status === "active");
+      if (exists) return;
+
+      items.push({
+        id: `alt-${Math.random().toString(36).substr(2, 9)}`,
+        user_id: userId,
+        alert_type: alertType,
+        message,
+        status: "active",
+        created_at: new Date().toISOString()
+      });
+      localStorage.setItem("trademind_portfolio_alerts_v2", JSON.stringify(items));
+      return;
+    }
+    try {
+      const { data } = await supabase
+        .from("portfolio_alerts")
+        .select("id")
+        .eq("user_id", userId)
+        .eq("alert_type", alertType)
+        .eq("status", "active")
+        .maybeSingle();
+
+      if (data) return;
+
+      await supabase
+        .from("portfolio_alerts")
+        .insert({
+          user_id: userId,
+          alert_type: alertType,
+          message,
+          status: "active"
+        });
+    } catch (err) {
+      console.warn("Failed to save portfolio alert to DB", err);
+    }
+  },
+
+  /**
+   * Fetch portfolio alerts history chronologically.
+   */
+  async getAlerts(): Promise<PortfolioAlert[]> {
+    const userId = await getUserId();
+    if (userId === "00000000-0000-0000-0000-000000000000") {
+      const stored = localStorage.getItem("trademind_portfolio_alerts_v2");
+      const items = stored ? JSON.parse(stored) : [];
+      return items.map((i: any) => ({
+        id: i.id,
+        user_id: i.user_id,
+        alert_type: i.alert_type,
+        message: i.message,
+        status: i.status || "active",
+        created_at: i.created_at
+      }));
+    }
+    try {
+      const { data, error } = await supabase
+        .from("portfolio_alerts")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data || []).map((r) => ({
+        id: r.id,
+        user_id: r.user_id,
+        alert_type: r.alert_type,
+        message: r.message,
+        status: r.status as "active" | "dismissed",
+        created_at: r.created_at
+      }));
+    } catch (err) {
+      console.warn("Failed to fetch alerts from DB, using local storage", err);
+      const stored = localStorage.getItem("trademind_portfolio_alerts_v2");
+      const items = stored ? JSON.parse(stored) : [];
+      return items.map((i: any) => ({
+        id: i.id,
+        user_id: i.user_id,
+        alert_type: i.alert_type,
+        message: i.message,
+        status: i.status || "active",
+        created_at: i.created_at
+      }));
+    }
+  },
+
+  /**
+   * Update alert status (active/dismissed)
+   */
+  async updateAlertStatus(id: string, status: "active" | "dismissed"): Promise<void> {
+    const userId = await getUserId();
+    if (userId === "00000000-0000-0000-0000-000000000000") {
+      const stored = localStorage.getItem("trademind_portfolio_alerts_v2");
+      const items = stored ? JSON.parse(stored) : [];
+      const idx = items.findIndex((i: any) => i.id === id);
+      if (idx !== -1) {
+        items[idx].status = status;
+        localStorage.setItem("trademind_portfolio_alerts_v2", JSON.stringify(items));
+      }
+      return;
+    }
+    try {
+      await supabase
+        .from("portfolio_alerts")
+        .update({ status })
+        .eq("id", id);
+    } catch (err) {
+      console.warn("Failed to update alert status in DB", err);
+    }
+  },
+
+  /**
+   * Sync active alerts to database/local storage based on current diagnosis metrics.
+   */
+  async syncAlerts(portfolio: PaperPortfolio, positions: PaperPosition[], goal: "Conservative" | "Balanced" | "Aggressive"): Promise<void> {
+    const diag = this.diagnosePortfolio(portfolio, positions, goal);
+
+    const sectorExposureLimit = goal === "Conservative" ? 30 : goal === "Aggressive" ? 50 : 40;
+    const minOptimalCash = goal === "Conservative" ? 20 : goal === "Aggressive" ? 5 : 10;
+
+    const itSec = diag.sectorAllocations.find((s) => s.sector === "IT Services");
+    const isItOverweight = itSec && itSec.allocationPct > sectorExposureLimit;
+
+    const isCashLow = diag.cashPct < minOptimalCash;
+
+    const isRiskHigh = diag.riskIndex === "High";
+
+    const isDiversificationFalling = diag.diversificationScore < 50;
+
+    if (isItOverweight && itSec) {
+      await this.saveAlert(
+        "IT_OVERWEIGHT",
+        `IT Services exposure is overweight at ${itSec.allocationPct}% (limit is ${sectorExposureLimit}%).`
+      );
+    }
+    if (isCashLow) {
+      await this.saveAlert(
+        "CASH_LOW",
+        `Cash allocation is low at ${diag.cashPct}% (minimum limit is ${minOptimalCash}%).`
+      );
+    }
+    if (isRiskHigh) {
+      await this.saveAlert(
+        "RISK_HIGH",
+        `Portfolio systematic risk is classified as High (Risk Index: ${diag.riskScore}).`
+      );
+    }
+    if (isDiversificationFalling) {
+      await this.saveAlert(
+        "DIVERSIFICATION_LOW",
+        `Diversification index has fallen below target score (Score: ${diag.diversificationScore}).`
+      );
+    }
+
+    const activeAlerts = await this.getAlerts();
+    for (const alert of activeAlerts) {
+      if (alert.status === "active") {
+        let shouldResolve = false;
+        if (alert.alert_type === "IT_OVERWEIGHT" && !isItOverweight) shouldResolve = true;
+        if (alert.alert_type === "CASH_LOW" && !isCashLow) shouldResolve = true;
+        if (alert.alert_type === "RISK_HIGH" && !isRiskHigh) shouldResolve = true;
+        if (alert.alert_type === "DIVERSIFICATION_LOW" && !isDiversificationFalling) shouldResolve = true;
+
+        if (shouldResolve) {
+          await this.updateAlertStatus(alert.id, "dismissed");
+        }
+      }
     }
   },
 
