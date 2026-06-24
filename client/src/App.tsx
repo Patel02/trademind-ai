@@ -56,6 +56,8 @@ export const App: React.FC = () => {
               <Route path="/paper-trading" element={<PaperTrading />} />
               <Route path="/portfolio" element={<Portfolio />} />
               <Route path="/history" element={<History />} />
+              <Route path="/history/wins" element={<History />} />
+              <Route path="/history/losses" element={<History />} />
               <Route path="/trade" element={<Navigate to="/trade/TCS" replace />} />
               <Route path="/trade/:symbol" element={<TradePage />} />
               <Route 

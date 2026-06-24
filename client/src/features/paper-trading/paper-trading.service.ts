@@ -25,6 +25,7 @@ export interface SignalDNASnapshot {
   marketRegime: string;
   sectorStrength: number;
   newsScore: number;
+  setupType: string; // D1 Setup Type
 }
 
 export interface TradeJournal {
@@ -597,6 +598,14 @@ export const paperTradingService = {
       } catch (err) {
         console.warn("Supabase paper_trades journal update failed; saved locally.", err);
       }
+
+      // E2: Log audit event TRADE_EDITED
+      try {
+        await auditService.logAction("TRADE_EDITED", "paper_trades", tradeId, exitNotes);
+      } catch (auditErr) {
+        // ignore fallback errors
+      }
+
       return true;
     }
     return false;
@@ -684,23 +693,25 @@ export const paperTradingService = {
         confidenceScore: 70,
         marketRegime: "Bull Market",
         sectorStrength: 80,
-        newsScore: 75
+        newsScore: 75,
+        setupType: "Bullish Breakout"
       };
 
       try {
-        const activeSigs = await signalsService.getSignals();
+        const activeSigs = await signalsService.getActiveSignals(); // Use getActiveSignals to get setup_type
         const match = activeSigs.find((s) => s.symbol.toUpperCase() === symbol.toUpperCase());
         const regimeObj = await signalsService.getMarketRegime();
         
         if (match) {
           dna = {
-            opportunityScore: match.score,
-            timingScore: match.trade_readiness,
-            riskScore: match.risk === "High" ? 70 : match.risk === "Medium" ? 45 : 25,
-            confidenceScore: match.confidence,
+            opportunityScore: match.signal_quality_score || match.confidence || 75,
+            timingScore: match.confidence || 72,
+            riskScore: match.opportunity_status === "Avoid" ? 70 : match.opportunity_status === "Elite Opportunity" ? 25 : 45,
+            confidenceScore: match.confidence || 70,
             marketRegime: regimeObj.regime,
             sectorStrength: symbol === "TCS" || symbol === "INFY" ? 92 : symbol === "RELIANCE" ? 82 : 78,
-            newsScore: match.score > 80 ? 85 : 70
+            newsScore: match.signal_quality_score > 80 ? 85 : 70,
+            setupType: match.setup_type || "Bullish Breakout"
           };
         }
       } catch {
@@ -924,7 +935,7 @@ export const paperTradingService = {
       });
       saveLocalOrders(localOrders);
 
-      await auditService.logAction("BUY_TRADE", "paper_orders", symbol, { quantity, price });
+      await auditService.logAction("BUY_CREATED", "paper_orders", symbol, { quantity, price });
 
       // A1 FIX: marker already saved inside Supabase block (authenticated) or we save once here for anonymous
       if (userId === "00000000-0000-0000-0000-000000000000") {
@@ -1352,7 +1363,7 @@ export const paperTradingService = {
 
       const isPartial = remainingQty > 0;
       await auditService.logAction(
-        isPartial ? "TRADE_PARTIALLY_CLOSED" : "SELL_TRADE",
+        isPartial ? "TRADE_PARTIALLY_CLOSED" : "TRADE_CLOSED",
         "paper_orders",
         symbol,
         { quantity, price, profitLoss, profitLossPercent, remainingQuantity: remainingQty }

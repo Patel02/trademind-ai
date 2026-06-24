@@ -19,6 +19,7 @@ import {
   paperTradingService,
   type PaperClosedTrade,
 } from "../../features/paper-trading/paper-trading.service";
+import { useLocation } from "react-router-dom";
 import Card from "../../components/ui/Card";
 import Badge from "../../components/ui/Badge";
 
@@ -54,8 +55,20 @@ export const History: React.FC = () => {
   const [expandedId,      setExpandedId]      = useState<string | null>(null);
   const [activeTab,       setActiveTab]       = useState<FilterTab>("all");
   const [symbolFilter,    setSymbolFilter]    = useState("ALL");   // H3
+  const [setupTypeFilter, setSetupTypeFilter] = useState("ALL");   // H4 Setup Type
   const [dateFrom,        setDateFrom]        = useState("");       // H2
   const [dateTo,          setDateTo]          = useState("");       // H2
+
+  const location = useLocation();
+
+  // H4 Routing: Pre-select tab based on URL path (/history/wins or /history/losses)
+  useEffect(() => {
+    if (location.pathname.endsWith("/wins")) {
+      setActiveTab("wins");
+    } else if (location.pathname.endsWith("/losses")) {
+      setActiveTab("losses");
+    }
+  }, [location.pathname]);
 
   // ── Load all trades (open + closed) from Supabase ──────────────────────────
   const loadData = useCallback(async () => {
@@ -89,6 +102,9 @@ export const History: React.FC = () => {
 
     // Symbol filter — H3
     if (symbolFilter !== "ALL" && t.symbol !== symbolFilter) return false;
+
+    // Setup Type filter
+    if (setupTypeFilter !== "ALL" && (t.signal_dna?.setupType || "Bullish Breakout") !== setupTypeFilter) return false;
 
     // Date range filter — H2
     if (dateFrom && new Date(t.entry_date) < new Date(dateFrom)) return false;
@@ -248,6 +264,27 @@ export const History: React.FC = () => {
             }}
           >
             {SYMBOLS.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        {/* Setup Type filter — H4 */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <BookOpen size={12} style={{ color: "var(--text-secondary)" }} />
+          <select
+            value={setupTypeFilter}
+            onChange={(e) => setSetupTypeFilter(e.target.value)}
+            style={{
+              padding: "6px 10px", borderRadius: "8px",
+              border: "1px solid var(--border)",
+              background: "rgba(255,255,255,0.04)",
+              color: setupTypeFilter !== "ALL" ? "var(--accent-purple)" : "var(--text-secondary)",
+              fontSize: "12px", cursor: "pointer",
+              fontFamily: "inherit", outline: "none",
+            }}
+          >
+            {["ALL", "Bullish Breakout", "Pullback Recovery", "Volatility Squeeze", "Support Bounce"].map((st) => (
+              <option key={st} value={st}>{st}</option>
+            ))}
           </select>
         </div>
 
