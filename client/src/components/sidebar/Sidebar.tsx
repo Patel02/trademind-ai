@@ -18,7 +18,8 @@ import {
   HeartPulse,
   CandlestickChart,
   Briefcase,
-  History
+  History,
+  MessageSquare
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { name: "Trade History", path: "/history", icon: History },
     { name: "Trade Workspace", path: "/trade/TCS", icon: CandlestickChart },
     { name: "Portfolio Doctor", path: "/portfolio/doctor", icon: HeartPulse },
+    { name: "AI Assistant", path: "/assistant", icon: MessageSquare },
     { name: "Profile", path: "/profile", icon: User },
   ];
 

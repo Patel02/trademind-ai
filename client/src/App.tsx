@@ -19,6 +19,7 @@ import Watchlist from "./pages/watchlist/Watchlist";
 import PaperTrading from "./pages/paper-trading/PaperTrading";
 import Profile from "./pages/profile/Profile";
 import PortfolioDoctorPage from "./pages/portfolio-doctor/PortfolioDoctor";
+import AIAssistantPage from "./pages/assistant/AIAssistant";
 import TradePage from "./app/trade/[symbol]/page";
 import Portfolio from "./pages/portfolio/Portfolio";
 import History from "./pages/history/History";
@@ -65,6 +66,14 @@ export const App: React.FC = () => {
                 element={
                   <RoleGuard allowedRoles={["FREE_USER", "PREMIUM_USER", "ADMIN", "SUPER_ADMIN"]}>
                     <PortfolioDoctorPage />
+                  </RoleGuard>
+                } 
+              />
+              <Route 
+                path="/assistant" 
+                element={
+                  <RoleGuard allowedRoles={["FREE_USER", "PREMIUM_USER", "ADMIN", "SUPER_ADMIN"]}>
+                    <AIAssistantPage />
                   </RoleGuard>
                 } 
               />
