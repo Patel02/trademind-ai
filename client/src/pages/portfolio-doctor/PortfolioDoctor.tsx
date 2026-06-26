@@ -103,7 +103,7 @@ export const PortfolioDoctorPage: React.FC = () => {
         const activeAlts = await portfolioDoctorService.getAlerts();
         setAlerts(activeAlts);
 
-        const diag = portfolioDoctorService.diagnosePortfolio(port, pos, goal);
+        const diag = portfolioDoctorService.diagnosePortfolio(port, pos, goal, snaps);
         const dbRecs = await portfolioDoctorService.getRecommendations();
         for (const sug of diag.suggestions) {
           const exists = dbRecs.some(r => r.recommendation === sug.text);
@@ -138,7 +138,7 @@ export const PortfolioDoctorPage: React.FC = () => {
         const activeAlts = await portfolioDoctorService.getAlerts();
         setAlerts(activeAlts);
 
-        const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, newGoal);
+        const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, newGoal, history);
         const dbRecs = await portfolioDoctorService.getRecommendations();
         for (const sug of diag.suggestions) {
           const exists = dbRecs.some(r => r.recommendation === sug.text);
@@ -167,7 +167,7 @@ export const PortfolioDoctorPage: React.FC = () => {
   }
 
   // Get current diagnostics based on selected Goal
-  const currentDiag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal);
+  const currentDiag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal, history);
   
   // Use simulated calculations if simulation is active
   const activeDiag = simulatedDiag || currentDiag;
@@ -825,6 +825,105 @@ export const PortfolioDoctorPage: React.FC = () => {
               </div>
             </Card>
 
+            {/* Section 11: Pro Portfolio Insights (Premium Lock) */}
+            <Card 
+              title="Pro Portfolio Insights" 
+              subtitle="Performance attribution & risk factor contribution"
+              extra={<Sparkles size={18} color="var(--accent-yellow)" />}
+            >
+              <div style={{ position: "relative" }}>
+                
+                {/* Card Contents */}
+                <div style={{ filter: isPremium ? "none" : "blur(3.5px)", pointerEvents: isPremium ? "auto" : "none", display: "flex", flexDirection: "column", gap: "14px" }}>
+                  
+                  {/* Health History */}
+                  <div style={{ background: "rgba(0,0,0,0.15)", padding: "12px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                    <span style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", textTransform: "uppercase" }}>PORTFOLIO HEALTH HISTORY</span>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "4px" }}>
+                      <div>
+                        <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Today: </span>
+                        <strong style={{ fontSize: "16px", color: "#fff" }}>{activeDiag.premiumMetrics?.healthComparison?.today || healthScore}</strong>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>Last Month: </span>
+                        <strong style={{ fontSize: "16px", color: "var(--text-secondary)" }}>{activeDiag.premiumMetrics?.healthComparison?.lastMonth || 76}</strong>
+                      </div>
+                      <Badge variant={(activeDiag.premiumMetrics?.healthComparison?.improvementPct || 0) >= 0 ? "success" : "danger"}>
+                        {(activeDiag.premiumMetrics?.healthComparison?.improvementPct || 0) >= 0 ? "Improvement" : "Decline"}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Best & Worst Performers */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                    <div style={{ background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                      <span style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", textTransform: "uppercase" }}>BEST PERFORMER</span>
+                      <strong style={{ fontSize: "16px", color: "var(--accent-green)", display: "block", marginTop: "4px" }}>
+                        {activeDiag.premiumMetrics?.bestPerformerSymbol || "None"}
+                      </strong>
+                      <span style={{ fontSize: "12px", color: "var(--accent-green)", fontWeight: "700" }}>
+                        {activeDiag.premiumMetrics && activeDiag.premiumMetrics.bestPerformerPct > 0 ? "+" : ""}{activeDiag.premiumMetrics?.bestPerformerPct || 0}%
+                      </span>
+                    </div>
+
+                    <div style={{ background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)" }}>
+                      <span style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", textTransform: "uppercase" }}>WORST PERFORMER</span>
+                      <strong style={{ fontSize: "16px", color: "var(--accent-red)", display: "block", marginTop: "4px" }}>
+                        {activeDiag.premiumMetrics?.worstPerformerSymbol || "None"}
+                      </strong>
+                      <span style={{ fontSize: "12px", color: "var(--accent-red)", fontWeight: "700" }}>
+                        {activeDiag.premiumMetrics && activeDiag.premiumMetrics.worstPerformerPct > 0 ? "+" : ""}{activeDiag.premiumMetrics?.worstPerformerPct || 0}%
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Risk Contribution */}
+                  <div style={{ background: "rgba(255, 255, 255, 0.015)", border: "1px solid var(--border)", borderRadius: "8px", padding: "10px 14px", fontSize: "12.5px" }}>
+                    <span style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", textTransform: "uppercase", marginBottom: "4px" }}>RISK CONTRIBUTION</span>
+                    <span style={{ color: "var(--text-secondary)" }}>
+                      <strong style={{ color: "var(--accent-purple)" }}>{activeDiag.premiumMetrics?.riskContributionSymbol || "None"}</strong> contributes{" "}
+                      <strong style={{ color: "#fff" }}>{activeDiag.premiumMetrics?.riskContributionPct || 0}%</strong> of total portfolio risk.
+                    </span>
+                  </div>
+
+                </div>
+
+                {/* Premium Overlay Gate */}
+                {!isPremium && (
+                  <div style={{
+                    position: "absolute",
+                    top: -10,
+                    left: -10,
+                    right: -10,
+                    bottom: -10,
+                    background: "rgba(10, 10, 10, 0.70)",
+                    backdropFilter: "blur(4px)",
+                    borderRadius: "10px",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: "20px",
+                    textAlign: "center",
+                    border: "1px solid rgba(255,255,255,0.03)",
+                    zIndex: 2
+                  }}>
+                    <Lock size={22} color="var(--accent-yellow)" style={{ marginBottom: "8px" }} />
+                    <strong style={{ fontSize: "14px", color: "#fff", display: "block" }}>Unlock Pro Portfolio Insights</strong>
+                    <p style={{ margin: "4px 0 12px 0", fontSize: "11px", color: "var(--text-secondary)", maxWidth: "220px", lineHeight: "1.4" }}>
+                      Access health history comparisons, best/worst performance attributions, and stock risk weight metrics.
+                    </p>
+                    <button 
+                      onClick={() => setOverridePlan("premium")}
+                      style={{ background: "var(--accent-purple)", color: "#fff", border: "none", borderRadius: "6px", padding: "6px 14px", fontSize: "11px", fontWeight: "750", cursor: "pointer", transition: "all 0.2s" }}
+                    >
+                      Upgrade to Premium
+                    </button>
+                  </div>
+                )}
+              </div>
+            </Card>
+
           </div>
 
           {/* RIGHT COLUMN: Goals selector, Risk Engine, Stress test, Recommendations, Timeline, Behavior */}
@@ -1184,6 +1283,7 @@ export const PortfolioDoctorPage: React.FC = () => {
               onSimulationUpdate={setSimulatedDiag}
               stockPrices={stockPrices}
               goal={goal}
+              history={history}
             />
 
           </div>

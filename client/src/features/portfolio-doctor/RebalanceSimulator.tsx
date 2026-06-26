@@ -15,6 +15,7 @@ interface RebalanceSimulatorProps {
   onSimulationUpdate: (simulatedDiag: PortfolioDiagnosis | null) => void;
   stockPrices: Record<string, number>;
   goal?: "Conservative" | "Balanced" | "Aggressive";
+  history?: { health_score: number; created_at: string }[];
 }
 
 export const RebalanceSimulator: React.FC<RebalanceSimulatorProps> = ({
@@ -22,7 +23,8 @@ export const RebalanceSimulator: React.FC<RebalanceSimulatorProps> = ({
   positions,
   onSimulationUpdate,
   stockPrices,
-  goal = "Balanced"
+  goal = "Balanced",
+  history
 }) => {
   const allSymbols = ["TCS", "RELIANCE", "INFY", "HDFCBANK"];
   const totalNAV = portfolio.balance + positions.reduce((sum, p) => sum + p.quantity * p.current_price, 0);
@@ -103,7 +105,8 @@ export const RebalanceSimulator: React.FC<RebalanceSimulatorProps> = ({
     const simulatedDiag = portfolioDoctorService.diagnosePortfolio(
       simulatedPortfolio,
       simulatedPositions,
-      goal
+      goal,
+      history
     );
 
     onSimulationUpdate(simulatedDiag);
