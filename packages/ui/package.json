@@ -1,0 +1,13 @@
+{
+  "name": "@trademind/ui",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "description": "Shared UI library for TradeMind AI platform",
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "lucide-react": "^1.20.0"
+  }
+}

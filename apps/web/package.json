@@ -1,7 +1,7 @@
 {
-  "name": "client",
+  "name": "@trademind/web",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -25,6 +25,9 @@
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-router-dom": "^7.18.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@trademind/types": "*",
+    "@trademind/ui": "*",
+    "@trademind/utils": "*"
   }
 }
