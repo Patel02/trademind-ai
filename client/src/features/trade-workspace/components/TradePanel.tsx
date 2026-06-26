@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { ShoppingCart, TrendingDown, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { ShoppingCart, TrendingDown, Loader2, CheckCircle2, XCircle, Sparkles } from "lucide-react";
 import { paperTradingService } from "../../../features/paper-trading/paper-trading.service";
+import { portfolioDoctorService } from "../../portfolio-doctor/portfolio-doctor.service";
 import type { WorkspaceAIData } from "../types";
 
 interface TradePanelProps {
@@ -17,6 +18,25 @@ export const TradePanel: React.FC<TradePanelProps> = ({ symbol, currentPrice, ai
   const [orderNote, setOrderNote] = useState("");
   const [orderState, setOrderState] = useState<OrderState>("idle");
   const [orderMsg, setOrderMsg] = useState("");
+
+  // Preview Modal States
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [previewAction, setPreviewAction] = useState<"BUY" | "SELL">("BUY");
+  const [previewResult, setPreviewResult] = useState<any | null>(null);
+
+  const handlePreviewImpact = async (action: "BUY" | "SELL") => {
+    try {
+      const port = await paperTradingService.getPortfolio();
+      const pos = await paperTradingService.getPositions();
+      const goal = (localStorage.getItem("trademind_portfolio_goal") as any) || "Balanced";
+      const result = portfolioDoctorService.previewTradeImpact(port, pos, symbol, action, quantity, currentPrice, goal);
+      setPreviewResult(result);
+      setPreviewAction(action);
+      setIsPreviewOpen(true);
+    } catch (err) {
+      console.error("Failed to calculate trade impact preview:", err);
+    }
+  };
 
   const totalValue = (quantity * currentPrice).toFixed(2);
 
@@ -157,6 +177,72 @@ export const TradePanel: React.FC<TradePanelProps> = ({ symbol, currentPrice, ai
         </div>
       )}
 
+      {/* Preview Buttons */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
+        <button
+          type="button"
+          onClick={() => handlePreviewImpact("BUY")}
+          disabled={orderState === "loading"}
+          style={{
+            padding: "8px",
+            background: "rgba(139, 92, 246, 0.08)",
+            border: "1px solid rgba(139, 92, 246, 0.3)",
+            borderRadius: "6px",
+            color: "#fff",
+            fontSize: "11px",
+            fontWeight: "750",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "4px",
+            transition: "all 0.2s"
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(139, 92, 246, 0.15)";
+            e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.5)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "rgba(139, 92, 246, 0.08)";
+            e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.3)";
+          }}
+        >
+          <Sparkles size={11} color="var(--accent-purple)" />
+          <span>Preview BUY</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => handlePreviewImpact("SELL")}
+          disabled={orderState === "loading"}
+          style={{
+            padding: "8px",
+            background: "rgba(139, 92, 246, 0.08)",
+            border: "1px solid rgba(139, 92, 246, 0.3)",
+            borderRadius: "6px",
+            color: "#fff",
+            fontSize: "11px",
+            fontWeight: "750",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "4px",
+            transition: "all 0.2s"
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "rgba(139, 92, 246, 0.15)";
+            e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.5)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "rgba(139, 92, 246, 0.08)";
+            e.currentTarget.style.borderColor = "rgba(139, 92, 246, 0.3)";
+          }}
+        >
+          <Sparkles size={11} color="var(--accent-purple)" />
+          <span>Preview SELL</span>
+        </button>
+      </div>
+
       {/* Action Buttons */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
         <button
@@ -183,6 +269,124 @@ export const TradePanel: React.FC<TradePanelProps> = ({ symbol, currentPrice, ai
         {" "}|{" "}
         T1: <strong style={{ color: "var(--accent-green)" }}>₹{ai.target1.toLocaleString()}</strong>
       </div>
+
+      {/* Preview Modal Overlay */}
+      {isPreviewOpen && previewResult && (
+        <div style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: "rgba(10, 10, 10, 0.80)",
+          backdropFilter: "blur(6px)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+          padding: "20px"
+        }}>
+          <div style={{
+            background: "#0f0f0f",
+            border: "1px solid var(--border)",
+            borderRadius: "12px",
+            width: "100%",
+            maxWidth: "400px",
+            padding: "20px",
+            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            flexDirection: "column",
+            gap: "14px",
+            textAlign: "left"
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border)", paddingBottom: "10px" }}>
+              <strong style={{ fontSize: "14px", color: "#fff", display: "flex", alignItems: "center", gap: "6px" }}>
+                <Sparkles size={14} color="var(--accent-purple)" />
+                Decision Impact Preview
+              </strong>
+              <button 
+                onClick={() => setIsPreviewOpen(false)}
+                style={{ background: "transparent", border: "none", color: "var(--text-secondary)", fontSize: "18px", cursor: "pointer" }}
+              >×</button>
+            </div>
+
+            <div>
+              <span style={{ fontSize: "10px", color: "var(--text-secondary)", textTransform: "uppercase", display: "block" }}>Order Details</span>
+              <strong style={{ fontSize: "13px", color: "#fff" }}>
+                {previewAction} {quantity} Shares of {symbol} @ ₹{currentPrice.toLocaleString()}
+              </strong>
+            </div>
+
+            {/* Simulated Score Comparison */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div style={{ background: "rgba(0,0,0,0.25)", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", textAlign: "center" }}>
+                <span style={{ fontSize: "9px", color: "var(--text-secondary)", display: "block" }}>HEALTH SCORE</span>
+                <strong style={{ fontSize: "15px", color: previewResult.simulated.healthScore >= previewResult.current.healthScore ? "var(--accent-green)" : "var(--accent-red)" }}>
+                  {previewResult.current.healthScore} → {previewResult.simulated.healthScore}
+                </strong>
+              </div>
+              <div style={{ background: "rgba(0,0,0,0.25)", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", textAlign: "center" }}>
+                <span style={{ fontSize: "9px", color: "var(--text-secondary)", display: "block" }}>CASH %</span>
+                <strong style={{ fontSize: "15px", color: "#fff" }}>
+                  {previewResult.current.cashPct.toFixed(1)}% → {previewResult.simulated.cashPct.toFixed(1)}%
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+              <div style={{ background: "rgba(0,0,0,0.25)", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", textAlign: "center" }}>
+                <span style={{ fontSize: "9px", color: "var(--text-secondary)", display: "block" }}>CONCENTRATION</span>
+                <strong style={{ fontSize: "15px", color: "#fff" }}>
+                  {previewResult.current.concentrationPct.toFixed(1)}% → {previewResult.simulated.concentrationPct.toFixed(1)}%
+                </strong>
+              </div>
+              <div style={{ background: "rgba(0,0,0,0.25)", padding: "10px", borderRadius: "8px", border: "1px solid var(--border)", textAlign: "center" }}>
+                <span style={{ fontSize: "9px", color: "var(--text-secondary)", display: "block" }}>IT EXPOSURE</span>
+                <strong style={{ fontSize: "15px", color: "#fff" }}>
+                  {previewResult.current.itExposurePct.toFixed(1)}% → {previewResult.simulated.itExposurePct.toFixed(1)}%
+                </strong>
+              </div>
+            </div>
+
+            {/* Warnings list */}
+            {previewResult.warnings.length > 0 ? (
+              <div style={{ background: "rgba(239, 68, 68, 0.04)", border: "1px solid rgba(239, 68, 68, 0.15)", borderRadius: "8px", padding: "10px 14px" }}>
+                <strong style={{ fontSize: "11px", color: "var(--accent-red)", display: "block", marginBottom: "4px" }}>Hedge Warnings Flagged:</strong>
+                {previewResult.warnings.map((w: string, idx: number) => (
+                  <div key={idx} style={{ display: "flex", gap: "6px", fontSize: "11px", color: "var(--text-secondary)", marginBottom: "3px" }}>
+                    <span style={{ color: "var(--accent-red)" }}>•</span>
+                    <span>{w}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ background: "rgba(16, 185, 129, 0.04)", border: "1px solid rgba(16, 185, 129, 0.15)", borderRadius: "8px", padding: "10px 14px", display: "flex", gap: "8px", alignItems: "center", fontSize: "11.5px", color: "var(--accent-green)" }}>
+                <CheckCircle2 size={13} />
+                <span>Trade matches target risk and allocation limits.</span>
+              </div>
+            )}
+
+            {/* Modal Controls */}
+            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1.8fr", gap: "10px", marginTop: "4px" }}>
+              <button
+                onClick={() => setIsPreviewOpen(false)}
+                style={{ padding: "8px", background: "transparent", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text-secondary)", fontSize: "12px", fontWeight: "700", cursor: "pointer" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  executeOrder(previewAction);
+                  setIsPreviewOpen(false);
+                }}
+                style={{ padding: "8px", background: "var(--accent-purple)", border: "none", borderRadius: "6px", color: "#fff", fontSize: "12px", fontWeight: "750", cursor: "pointer" }}
+              >
+                Execute {previewAction}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

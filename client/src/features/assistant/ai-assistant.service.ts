@@ -90,7 +90,7 @@ ${riskFactors.join("\n")}
         const goal = (localStorage.getItem("trademind_portfolio_goal") as any) || "Balanced";
         const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal);
 
-        const underexposed = diag.composition.filter(c => c.state === "Underexposed" || c.pct === 0);
+        const underexposed = diag.composition.filter(c => c.state === "Underweight" || c.pct === 0);
         if (underexposed.length === 0) {
           return `### Sector Exposure Advice
 Your portfolio is balanced across the main sectors. No major underexposures detected.`;

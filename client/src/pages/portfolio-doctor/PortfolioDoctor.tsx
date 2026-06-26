@@ -63,6 +63,11 @@ export const PortfolioDoctorPage: React.FC = () => {
   const [alerts, setAlerts] = useState<PortfolioAlert[]>([]);
   const [recommendations, setRecommendations] = useState<any[]>([]);
 
+  // AI What-If Simulator States
+  const [whatIfSymbol, setWhatIfSymbol] = useState("HDFCBANK");
+  const [whatIfQty, setWhatIfQty] = useState(10);
+  const [whatIfAction, setWhatIfAction] = useState<"BUY" | "SELL">("BUY");
+
   const loadData = async (isSilent = false) => {
     if (!isSilent) setLoading(true);
 
@@ -191,8 +196,15 @@ export const PortfolioDoctorPage: React.FC = () => {
     composition,
     concentrationRisk,
     behaviorAnalytics,
-    cashPct
+    cashPct,
+    healthTrend,
+    correlatedAssetsAlerts,
+    positionRatings
   } = activeDiag;
+
+  const whatIfResult = portfolio && positions
+    ? portfolioDoctorService.previewTradeImpact(portfolio, positions, whatIfSymbol, whatIfAction, whatIfQty, stockPrices[whatIfSymbol] || 1000, goal)
+    : null;
 
   const strokeDashoffset = 251.2 - (251.2 * healthScore) / 100;
   const healthDelta = isSimulationActive ? healthScore - currentDiag.healthScore : 0;
@@ -603,7 +615,14 @@ export const PortfolioDoctorPage: React.FC = () => {
             <Card 
               title={isSimulationActive ? "Simulated Health Summary" : "Portfolio Health Summary"} 
               subtitle={`Audits adjusted for: ${goal} Goal`}
-              extra={<Compass size={18} color="var(--accent-blue)" />}
+              extra={
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  {healthTrend === "up" && <Badge variant="success">↑ Improving</Badge>}
+                  {healthTrend === "down" && <Badge variant="danger">↓ Declining</Badge>}
+                  {healthTrend === "stable" && <Badge variant="info">→ Stable</Badge>}
+                  <Compass size={18} color="var(--accent-blue)" />
+                </div>
+              }
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "1.8rem" }} className="responsive-split-row">
@@ -740,7 +759,7 @@ export const PortfolioDoctorPage: React.FC = () => {
                           {comp.pct}%
                         </span>
                       </div>
-                      <Badge variant={comp.state === "Overexposed" ? "danger" : comp.state === "Balanced" ? "success" : "warning"}>
+                      <Badge variant={comp.state === "Overweight" ? "danger" : comp.state === "Healthy" ? "success" : "warning"}>
                         {comp.state}
                       </Badge>
                     </div>
@@ -753,6 +772,14 @@ export const PortfolioDoctorPage: React.FC = () => {
                         }} 
                       />
                     </div>
+                  </div>
+                ))}
+
+                {/* Correlation Alerts */}
+                {correlatedAssetsAlerts.map((alert, idx) => (
+                  <div key={`corr-alert-${idx}`} style={{ display: "flex", gap: "8px", alignItems: "center", background: "rgba(245, 158, 11, 0.05)", border: "1px solid rgba(245, 158, 11, 0.15)", borderRadius: "8px", padding: "8px 12px", color: "var(--accent-yellow)", fontSize: "12px", marginTop: "8px" }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                    <span>{alert}</span>
                   </div>
                 ))}
               </div>
@@ -788,6 +815,58 @@ export const PortfolioDoctorPage: React.FC = () => {
                       Concentration limits are balanced. Positions conform to the {goal} goal limit of {concentrationRisk.limit}%.
                     </div>
                   </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Section 12: Position Quality Analyzer */}
+            <Card 
+              title="Position Quality Analyzer" 
+              subtitle="Granular ratings and contribution metrics"
+              extra={<Activity size={18} color="var(--accent-green)" />}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                {positionRatings.length === 0 ? (
+                  <div style={{ padding: "16px", textTransform: "uppercase", fontSize: "11px", color: "var(--text-secondary)", textAlign: "center" }}>
+                    No active positions to analyze.
+                  </div>
+                ) : (
+                  positionRatings.map((pos) => (
+                    <div 
+                      key={pos.symbol}
+                      style={{ 
+                        display: "flex", 
+                        justifyContent: "space-between", 
+                        alignItems: "center", 
+                        background: "rgba(255,255,255,0.01)", 
+                        border: "1px solid var(--border)", 
+                        borderRadius: "8px", 
+                        padding: "10px 14px",
+                        fontSize: "12.5px"
+                      }}
+                    >
+                      <div>
+                        <strong style={{ color: "#fff", fontSize: "14px" }}>{pos.symbol}</strong>
+                        <div style={{ display: "flex", gap: "8px", marginTop: "4px", fontSize: "11px", color: "var(--text-secondary)" }}>
+                          <span>Weight: {pos.weight}%</span>
+                          <span>•</span>
+                          <span style={{ color: pos.contribution === "Positive" ? "var(--accent-green)" : "var(--accent-red)" }}>
+                            {pos.contribution}
+                          </span>
+                          <span>•</span>
+                          <span style={{ color: pos.risk === "High" ? "var(--accent-red)" : pos.risk === "Medium" ? "var(--accent-yellow)" : "var(--accent-green)" }}>
+                            {pos.risk} Risk
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <span style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block" }}>QUALITY RATING</span>
+                        <strong style={{ fontSize: "18px", color: pos.rating >= 8 ? "var(--accent-green)" : pos.rating >= 6 ? "var(--accent-yellow)" : "var(--accent-red)" }}>
+                          {pos.rating.toFixed(1)}<span style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: "500" }}>/10</span>
+                        </strong>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </Card>
@@ -1273,6 +1352,184 @@ export const PortfolioDoctorPage: React.FC = () => {
                     </button>
                   </div>
                 )}
+              </div>
+            </Card>
+
+            {/* Section 13: AI "What-If" Simulator */}
+            <Card 
+              title="AI 'What-If' Trade Simulator" 
+              subtitle="Preview health score impact before committing orders"
+              extra={<Zap size={18} color="var(--accent-yellow)" />}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+                <p style={{ margin: 0, fontSize: "12.5px", color: "var(--text-secondary)", lineHeight: "1.4" }}>
+                  Model the impact of a new trade on your current diversification and cash scores.
+                </p>
+
+                {/* Form Controls */}
+                <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>SYMBOL</label>
+                    <select
+                      value={whatIfSymbol}
+                      onChange={(e) => setWhatIfSymbol(e.target.value)}
+                      style={{ width: "100%", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", borderRadius: "6px", color: "#fff", padding: "6px 10px", outline: "none", fontSize: "12px" }}
+                    >
+                      <option value="TCS" style={{ background: "#0a0a0a" }}>TCS</option>
+                      <option value="INFY" style={{ background: "#0a0a0a" }}>INFY</option>
+                      <option value="RELIANCE" style={{ background: "#0a0a0a" }}>RELIANCE</option>
+                      <option value="HDFCBANK" style={{ background: "#0a0a0a" }}>HDFCBANK</option>
+                    </select>
+                  </div>
+
+                  <div style={{ width: "110px" }}>
+                    <label style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>ACTION</label>
+                    <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: "6px", overflow: "hidden" }}>
+                      <button
+                        onClick={() => setWhatIfAction("BUY")}
+                        style={{ flex: 1, padding: "5px 0", background: whatIfAction === "BUY" ? "var(--accent-purple)" : "transparent", border: "none", color: "#fff", fontSize: "11px", fontWeight: "750", cursor: "pointer", transition: "all 0.2s" }}
+                      >
+                        BUY
+                      </button>
+                      <button
+                        onClick={() => setWhatIfAction("SELL")}
+                        style={{ flex: 1, padding: "5px 0", background: whatIfAction === "SELL" ? "var(--accent-purple)" : "transparent", border: "none", color: "#fff", fontSize: "11px", fontWeight: "750", cursor: "pointer", transition: "all 0.2s" }}
+                      >
+                        SELL
+                      </button>
+                    </div>
+                  </div>
+
+                  <div style={{ width: "90px" }}>
+                    <label style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>QTY</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={whatIfQty}
+                      onChange={(e) => setWhatIfQty(Math.max(1, parseInt(e.target.value) || 1))}
+                      style={{ width: "100%", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border)", borderRadius: "6px", color: "#fff", padding: "5px 10px", outline: "none", fontSize: "12px", textAlign: "center" }}
+                    />
+                  </div>
+                </div>
+
+                {/* Simulated Results Dashboard */}
+                {whatIfResult && (
+                  <div style={{ borderTop: "1px solid var(--border)", paddingTop: "12px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "10px" }}>
+                      <div style={{ background: "rgba(0,0,0,0.15)", padding: "8px", borderRadius: "6px", textAlign: "center" }}>
+                        <span style={{ fontSize: "9px", color: "var(--text-secondary)", display: "block" }}>HEALTH SCORE</span>
+                        <strong style={{ fontSize: "14px", color: getScoreColor(whatIfResult.simulated.healthScore) }}>
+                          {whatIfResult.current.healthScore} → {whatIfResult.simulated.healthScore}
+                        </strong>
+                      </div>
+                      <div style={{ background: "rgba(0,0,0,0.15)", padding: "8px", borderRadius: "6px", textAlign: "center" }}>
+                        <span style={{ fontSize: "9px", color: "var(--text-secondary)", display: "block" }}>CASH %</span>
+                        <strong style={{ fontSize: "14px", color: "#fff" }}>
+                          {whatIfResult.current.cashPct}% → {whatIfResult.simulated.cashPct}%
+                        </strong>
+                      </div>
+                      <div style={{ background: "rgba(0,0,0,0.15)", padding: "8px", borderRadius: "6px", textAlign: "center" }}>
+                        <span style={{ fontSize: "9px", color: "var(--text-secondary)", display: "block" }}>CONCENTRATION</span>
+                        <strong style={{ fontSize: "14px", color: "#fff" }}>
+                          {whatIfResult.current.concentrationPct.toFixed(1)}% → {whatIfResult.simulated.concentrationPct.toFixed(1)}%
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Warnings List */}
+                    {whatIfResult.warnings.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "4px" }}>
+                        {whatIfResult.warnings.map((w, idx) => (
+                          <div key={idx} style={{ display: "flex", gap: "6px", alignItems: "flex-start", fontSize: "11.5px", color: "var(--accent-red)" }}>
+                            <span>•</span>
+                            <span>{w}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: "11.5px", color: "var(--accent-green)", display: "flex", gap: "6px", alignItems: "center" }}>
+                        <CheckCircle size={12} />
+                        <span>Proposed trade aligns within safety thresholds.</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </Card>
+
+            {/* Section 14: Monthly AI Report Card */}
+            <Card 
+              title="Monthly AI Portfolio Report" 
+              subtitle="Download performance metrics and risk audits digest"
+              extra={<Sparkles size={18} color="var(--accent-purple)" />}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "13px" }}>
+                <p style={{ margin: 0, color: "var(--text-secondary)", lineHeight: "1.4" }}>
+                  Your monthly structural analysis report is generated based on recent snapshots, realized gains, and behavior drag logs.
+                </p>
+
+                <div style={{ background: "rgba(255,255,255,0.015)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Audit Target Period:</span>
+                    <strong style={{ color: "#fff" }}>Last 30 Days</strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Best Trade Setup:</span>
+                    <strong style={{ color: "var(--accent-green)" }}>
+                      {activeDiag.premiumMetrics?.bestPerformerSymbol || "None"} ({activeDiag.premiumMetrics?.bestPerformerPct || 0}%)
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Worst Trade Setup:</span>
+                    <strong style={{ color: "var(--accent-red)" }}>
+                      {activeDiag.premiumMetrics?.worstPerformerSymbol || "None"} ({activeDiag.premiumMetrics?.worstPerformerPct || 0}%)
+                    </strong>
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "var(--text-secondary)" }}>Primary Allocation Drag:</span>
+                    <strong style={{ color: "var(--accent-yellow)" }}>
+                      {activeDiag.composition.find(c => c.state === "Overweight") ? "IT Sector Overweight" : "Optimal"}
+                    </strong>
+                  </div>
+                </div>
+
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    const printWindow = window.open("", "_blank");
+                    if (!printWindow) return;
+                    printWindow.document.write(`
+                      <html>
+                        <head>
+                          <title>TradeMind AI - Monthly Portfolio Report</title>
+                          <style>
+                            body { font-family: 'Outfit', 'Inter', sans-serif; background: #0a0a0a; color: #fff; padding: 40px; }
+                            h1 { border-bottom: 2px solid #6d28d9; padding-bottom: 10px; color: #fff; margin-bottom: 30px; }
+                            .metric { margin-bottom: 25px; border-bottom: 1px solid #1f1f1f; padding-bottom: 15px; }
+                            .metric label { color: #888; font-size: 12px; text-transform: uppercase; font-weight: bold; display: block; margin-bottom: 6px; }
+                            .metric .val { font-size: 20px; font-weight: bold; color: #fff; }
+                            .footer { margin-top: 50px; font-size: 11px; color: #555; text-align: center; }
+                          </style>
+                        </head>
+                        <body>
+                          <h1>Monthly AI Portfolio Report</h1>
+                          <p>Generated on ${new Date().toLocaleDateString()} for TradeMind AI Portfolio</p>
+                          <div class="metric"><label>Overall Health Score</label><div class="val">${healthScore}/100</div></div>
+                          <div class="metric"><label>Best Performer</label><div class="val">${activeDiag.premiumMetrics?.bestPerformerSymbol || "None"} (${activeDiag.premiumMetrics?.bestPerformerPct || 0}%)</div></div>
+                          <div class="metric"><label>Worst Performer</label><div class="val">${activeDiag.premiumMetrics?.worstPerformerSymbol || "None"} (${activeDiag.premiumMetrics?.worstPerformerPct || 0}%)</div></div>
+                          <div class="metric"><label>Behavior Analytics Review</label><div class="val">${activeDiag.behaviorAnalytics.feedback}</div></div>
+                          <div class="metric"><label>AI Rebalancing Action</label><div class="val">Maintain IT exposure below 40% and cash balance above 10% to raise health rating.</div></div>
+                          <div class="footer">TradeMind AI - Institutional Wealth Analytics Engine</div>
+                          <script>window.print();</script>
+                        </body>
+                      </html>
+                    `);
+                    printWindow.document.close();
+                  }}
+                  style={{ width: "100%", background: "var(--accent-purple)" }}
+                >
+                  Generate Monthly PDF Report
+                </Button>
               </div>
             </Card>
 

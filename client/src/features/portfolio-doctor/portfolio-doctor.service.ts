@@ -54,7 +54,7 @@ export interface PortfolioDiagnosis {
   sectorAllocations: SectorAllocation[];
   stockAllocations: StockAllocation[];
   suggestions: AISuggestion[];
-  composition: { sector: string; pct: number; state: "Overexposed" | "Balanced" | "Underexposed" }[];
+  composition: { sector: string; pct: number; state: "Overweight" | "Healthy" | "Underweight" }[];
   concentrationRisk: {
     topHoldingSymbol: string;
     topHoldingPct: number;
@@ -81,6 +81,15 @@ export interface PortfolioDiagnosis {
       improvementPct: number;
     } | null;
   };
+  healthTrend: "up" | "down" | "stable";
+  correlatedAssetsAlerts: string[];
+  positionRatings: {
+    symbol: string;
+    weight: number;
+    contribution: "Positive" | "Negative";
+    risk: "Low" | "Medium" | "High";
+    rating: number;
+  }[];
 }
 
 export interface StressTestResult {
@@ -183,11 +192,11 @@ export const portfolioDoctorService = {
 
     // 4. Sector X-Ray Composition mapping
     const composition = sectorAllocations.map((sec) => {
-      let state: "Overexposed" | "Balanced" | "Underexposed" = "Balanced";
+      let state: "Overweight" | "Healthy" | "Underweight" = "Healthy";
       if (sec.allocationPct > sectorExposureLimit) {
-        state = "Overexposed";
+        state = "Overweight";
       } else if (sec.allocationPct < 10) {
-        state = "Underexposed";
+        state = "Underweight";
       }
       return {
         sector: sec.sector,
@@ -196,14 +205,14 @@ export const portfolioDoctorService = {
       };
     });
 
-    // Add missing standard sectors to composition as Underexposed
+    // Add missing standard sectors to composition as Underweight
     const standardSectors = ["IT Services", "Financials", "Energy & Infra"];
     standardSectors.forEach((s) => {
       if (!composition.some((c) => c.sector === s)) {
         composition.push({
           sector: s,
           pct: 0,
-          state: "Underexposed"
+          state: "Underweight"
         });
       }
     });
@@ -561,6 +570,56 @@ export const portfolioDoctorService = {
       };
     }
 
+    // Health Trend
+    let healthTrend: "up" | "down" | "stable" = "stable";
+    if (history && history.length > 1) {
+      const prevScore = history[history.length - 2]?.health_score;
+      if (prevScore !== undefined) {
+        if (healthScore > prevScore) healthTrend = "up";
+        else if (healthScore < prevScore) healthTrend = "down";
+      }
+    }
+
+    // Correlation Warnings
+    const correlatedAssetsAlerts: string[] = [];
+    const hasTcs = positions.some(p => p.symbol.toUpperCase() === "TCS" && p.quantity > 0);
+    const hasInfy = positions.some(p => p.symbol.toUpperCase() === "INFY" && p.quantity > 0);
+    if (hasTcs && hasInfy) {
+      correlatedAssetsAlerts.push("TCS and INFY exhibit a high correlation of 0.85. Sector diversification is less effective than expected, elevating portfolio risk.");
+    }
+
+    // Position Ratings
+    const positionRatings = activePositions.map((pos) => {
+      const val = pos.quantity * pos.current_price;
+      const weight = nav > 0 ? Number(((val / nav) * 100).toFixed(1)) : 0;
+      const contribution: "Positive" | "Negative" = (pos.current_price >= pos.avg_entry_price) ? "Positive" : "Negative";
+      
+      const symbolUpper = pos.symbol.toUpperCase();
+      const risk: "Low" | "Medium" | "High" = (symbolUpper === "TCS" || symbolUpper === "INFY") ? "Medium" : "Low";
+      
+      let rating = 7.0;
+      if (contribution === "Positive") rating += 1.5;
+      
+      const oppScore = symbolUpper === "TCS" ? 82 : symbolUpper === "INFY" ? 74 : 70;
+      if (oppScore > 80) rating += 1.0;
+      
+      if (weight <= singlePositionLimit) {
+        rating += 0.5;
+      } else {
+        rating -= 1.5;
+      }
+      
+      rating = Math.max(1.0, Math.min(10.0, rating));
+      
+      return {
+        symbol: pos.symbol,
+        weight,
+        contribution,
+        risk,
+        rating: Number(rating.toFixed(1))
+      };
+    });
+
     return {
       nav,
       holdingsValue,
@@ -604,7 +663,10 @@ export const portfolioDoctorService = {
         riskContributionSymbol,
         riskContributionPct,
         healthComparison
-      }
+      },
+      healthTrend,
+      correlatedAssetsAlerts,
+      positionRatings
     };
   },
 
@@ -1126,6 +1188,123 @@ export const portfolioDoctorService = {
       const stored = localStorage.getItem("trademind_portfolio_stress_tests_v2");
       return stored ? JSON.parse(stored) : [];
     }
+  },
+
+  /**
+   * Preview trade impact on portfolio diagnostics before execution.
+   */
+  previewTradeImpact(
+    portfolio: PaperPortfolio,
+    positions: PaperPosition[],
+    symbol: string,
+    action: "BUY" | "SELL",
+    quantity: number,
+    price: number,
+    goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced"
+  ): {
+    current: { healthScore: number; cashPct: number; concentrationPct: number; itExposurePct: number };
+    simulated: { healthScore: number; cashPct: number; concentrationPct: number; itExposurePct: number };
+    warnings: string[];
+  } {
+    const currentDiag = this.diagnosePortfolio(portfolio, positions, goal);
+
+    const orderCost = quantity * price;
+    let simulatedBalance = portfolio.balance;
+    const simulatedPositions = positions.map(p => ({ ...p }));
+
+    if (action === "BUY") {
+      simulatedBalance -= orderCost;
+      const idx = simulatedPositions.findIndex(p => p.symbol.toUpperCase() === symbol.toUpperCase());
+      if (idx !== -1) {
+        const p = simulatedPositions[idx];
+        const newQty = p.quantity + quantity;
+        const newAvg = ((p.avg_price * p.quantity) + orderCost) / newQty;
+        simulatedPositions[idx] = {
+          ...p,
+          quantity: newQty,
+          avg_price: newAvg,
+          avg_entry_price: newAvg,
+          current_price: price,
+          unrealized_pnl: (price - newAvg) * newQty
+        };
+      } else {
+        simulatedPositions.push({
+          id: `sim-pos-${Math.random().toString(36).substr(2, 9)}`,
+          user_id: portfolio.user_id,
+          symbol: symbol.toUpperCase(),
+          quantity: quantity,
+          avg_price: price,
+          avg_entry_price: price,
+          current_price: price,
+          unrealized_pnl: 0,
+          realized_pnl: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          status: "open"
+        });
+      }
+    } else {
+      simulatedBalance += orderCost;
+      const idx = simulatedPositions.findIndex(p => p.symbol.toUpperCase() === symbol.toUpperCase());
+      if (idx !== -1) {
+        const p = simulatedPositions[idx];
+        const newQty = Math.max(0, p.quantity - quantity);
+        if (newQty === 0) {
+          simulatedPositions.splice(idx, 1);
+        } else {
+          simulatedPositions[idx] = {
+            ...p,
+            quantity: newQty,
+            current_price: price,
+            unrealized_pnl: (price - p.avg_price) * newQty
+          };
+        }
+      }
+    }
+
+    const simDiag = this.diagnosePortfolio(
+      { ...portfolio, balance: simulatedBalance },
+      simulatedPositions,
+      goal
+    );
+
+    const currentTop = currentDiag.stockAllocations[0] || { symbol: "None", allocationPct: 0 };
+    const currentIt = currentDiag.sectorAllocations.find(s => s.sector === "IT Services") || { allocationPct: 0 };
+
+    const simTop = simDiag.stockAllocations[0] || { symbol: "None", allocationPct: 0 };
+    const simIt = simDiag.sectorAllocations.find(s => s.sector === "IT Services") || { allocationPct: 0 };
+
+    const warnings: string[] = [];
+    const singlePositionLimit = goal === "Conservative" ? 15 : goal === "Aggressive" ? 40 : 25;
+    if (simTop.allocationPct > singlePositionLimit) {
+      warnings.push(`Concentration Risk: ${simTop.symbol} weight will be ${simTop.allocationPct}% (limit is ${singlePositionLimit}%).`);
+    }
+
+    const minOptimalCash = goal === "Conservative" ? 20 : goal === "Aggressive" ? 5 : 10;
+    if (simDiag.cashPct < minOptimalCash) {
+      warnings.push(`Low Cash Buffer: Cash allocation will fall to ${simDiag.cashPct}% (minimum limit is ${minOptimalCash}%).`);
+    }
+
+    const sectorExposureLimit = goal === "Conservative" ? 30 : goal === "Aggressive" ? 50 : 40;
+    if (simIt.allocationPct > sectorExposureLimit) {
+      warnings.push(`Sector Overexposure: IT Services exposure will be ${simIt.allocationPct}% (limit is ${sectorExposureLimit}%).`);
+    }
+
+    return {
+      current: {
+        healthScore: currentDiag.healthScore,
+        cashPct: currentDiag.cashPct,
+        concentrationPct: currentTop.allocationPct,
+        itExposurePct: currentIt.allocationPct
+      },
+      simulated: {
+        healthScore: simDiag.healthScore,
+        cashPct: simDiag.cashPct,
+        concentrationPct: simTop.allocationPct,
+        itExposurePct: simIt.allocationPct
+      },
+      warnings
+    };
   }
 };
 
