@@ -33,3 +33,40 @@ export const profileUpdateSchema = z.object({
     .email("Please enter a valid email address.")
     .toLowerCase()
 });
+
+/**
+ * Zod validation schema for Portfolio Simulations
+ */
+export const portfolioSimulationSchema = z.object({
+  symbol: z.string()
+    .min(1, "Symbol is required.")
+    .transform((val) => val.toUpperCase())
+    .refine(
+      (val) => ["TCS", "INFY", "RELIANCE", "HDFCBANK"].includes(val),
+      "Invalid symbol. Must be TCS, INFY, RELIANCE, or HDFCBANK."
+    ),
+  action: z.enum(["BUY", "SELL"], {
+    error: () => "Action must be BUY or SELL."
+  }),
+  quantity: z.number({
+    error: "Quantity must be a positive number."
+  })
+    .int("Quantity must be an integer.")
+    .positive("Quantity must be greater than zero."),
+  price: z.number({
+    error: "Price must be a positive number."
+  })
+    .positive("Price must be greater than zero.")
+});
+
+/**
+ * Zod validation schema for AI memory updates
+ */
+export const userMemorySchema = z.object({
+  trading_style: z.string().min(2).max(100),
+  preferred_sectors: z.array(z.string()),
+  avg_holding_period: z.string().min(2).max(100),
+  risk_appetite: z.string().min(2).max(50),
+  best_performing_setup: z.string().max(1000).optional(),
+  most_common_mistakes: z.array(z.string())
+});

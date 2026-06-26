@@ -15,7 +15,8 @@ import {
   Target,
   BarChart2,
   PieChart,
-  UserCheck
+  UserCheck,
+  Brain
 } from "lucide-react";
 import { useAuth } from "../../app/providers/AuthProvider";
 import Card from "../../components/ui/Card";
@@ -32,6 +33,7 @@ import {
 } from "../../features/portfolio-doctor/portfolio-doctor.service";
 import RebalanceSimulator from "../../features/portfolio-doctor/RebalanceSimulator";
 import { auditService } from "../../security/audit.service";
+import { portfolioDoctorApi } from "../../api/portfolio-doctor";
 
 export const PortfolioDoctorPage: React.FC = () => {
   const { profile } = useAuth();
@@ -68,6 +70,19 @@ export const PortfolioDoctorPage: React.FC = () => {
   const [whatIfQty, setWhatIfQty] = useState(10);
   const [whatIfAction, setWhatIfAction] = useState<"BUY" | "SELL">("BUY");
 
+  // AI Memory States
+  const [aiMemory, setAIMemory] = useState({
+    trading_style: "Balanced",
+    preferred_sectors: ["IT Services", "Financials"],
+    avg_holding_period: "Medium Term",
+    risk_appetite: "Medium",
+    best_performing_setup: "TCS swing trade after sector pullback",
+    most_common_mistakes: ["Over-allocating in IT sector", "Holding loss makers too long"]
+  });
+  const [isEditingMemory, setIsEditingMemory] = useState(false);
+  const [editedMemory, setEditedMemory] = useState(aiMemory);
+  const [savingMemory, setSavingMemory] = useState(false);
+
   const loadData = async (isSilent = false) => {
     if (!isSilent) setLoading(true);
 
@@ -100,6 +115,15 @@ export const PortfolioDoctorPage: React.FC = () => {
       if (isPremium) {
         const logs = await portfolioDoctorService.getStressTestLogs();
         setStressTestLogs(logs);
+      }
+
+      // Load AI Memory
+      try {
+        const mem = await portfolioDoctorApi.getAIMemory();
+        setAIMemory(mem);
+        setEditedMemory(mem);
+      } catch (err) {
+        console.warn("Failed to load AI Memory:", err);
       }
 
       // Sync and load alerts and recommendations
@@ -199,7 +223,10 @@ export const PortfolioDoctorPage: React.FC = () => {
     cashPct,
     healthTrend,
     correlatedAssetsAlerts,
-    positionRatings
+    positionRatings,
+    stabilityScore,
+    growthPotentialScore,
+    grade
   } = activeDiag;
 
   const whatIfResult = portfolio && positions
@@ -659,20 +686,28 @@ export const PortfolioDoctorPage: React.FC = () => {
                   </div>
 
                   {/* Overview statistics */}
-                  <div style={{ flexGrow: 1, display: "flex", flexDirection: "column", gap: "10px" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
-                      <span style={{ color: "var(--text-secondary)" }}>Health Class</span>
+                  <div style={{ flexGrow: 1, display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", borderBottom: "1px solid var(--border)", paddingBottom: "5px" }}>
+                      <span style={{ color: "var(--text-secondary)" }}>Portfolio Grade</span>
                       <Badge variant={healthScore >= 80 ? "success" : healthScore >= 55 ? "warning" : "danger"}>
-                        {healthScore >= 80 ? "Excellent" : healthScore >= 55 ? "Moderate" : "Needs Review"}
+                        Grade {grade}
                       </Badge>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px", borderBottom: "1px solid var(--border)", paddingBottom: "8px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", borderBottom: "1px solid var(--border)", paddingBottom: "5px" }}>
+                      <span style={{ color: "var(--text-secondary)" }}>Stability Score</span>
+                      <strong style={{ color: getScoreColor(stabilityScore) }}>{stabilityScore}/100</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", borderBottom: "1px solid var(--border)", paddingBottom: "5px" }}>
+                      <span style={{ color: "var(--text-secondary)" }}>Growth Potential</span>
+                      <strong style={{ color: getScoreColor(growthPotentialScore) }}>{growthPotentialScore}/100</strong>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px", borderBottom: "1px solid var(--border)", paddingBottom: "5px" }}>
                       <span style={{ color: "var(--text-secondary)" }}>Volatility Drag</span>
-                      <span style={{ fontWeight: "750", color: volatilityDrag > 5 ? "var(--accent-red)" : "var(--accent-green)" }}>
+                      <span style={{ fontWeight: "700", color: volatilityDrag > 5 ? "var(--accent-red)" : "var(--accent-green)" }}>
                         {volatilityDrag}%
                       </span>
                     </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "13px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12px" }}>
                       <span style={{ color: "var(--text-secondary)" }}>Liquid Cash Buffer</span>
                       <span style={{ fontWeight: "700", color: "var(--accent-yellow)" }}>{cashPct}%</span>
                     </div>
@@ -751,13 +786,18 @@ export const PortfolioDoctorPage: React.FC = () => {
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
                 {composition.map((comp) => (
-                  <div key={comp.sector} style={{ borderBottom: "1px solid rgba(255,255,255,0.015)", paddingBottom: "10px" }}>
+                  <div key={comp.sector} style={{ borderBottom: "1px solid var(--border)", paddingBottom: "10px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "12.5px", marginBottom: "4px" }}>
                       <div>
-                        <strong style={{ color: "#fff" }}>{comp.sector}</strong>
+                        <strong style={{ color: "var(--text-primary)" }}>{comp.sector}</strong>
                         <span style={{ fontSize: "10px", color: "var(--text-secondary)", marginLeft: "6px" }}>
                           {comp.pct}%
                         </span>
+                        <div style={{ display: "flex", gap: "8px", marginTop: "2px", fontSize: "10px", color: "var(--text-secondary)" }}>
+                          <span>Risk: {(comp.sector === "IT Services" || comp.sector === "Financials") ? "Medium" : "Low"}</span>
+                          <span>•</span>
+                          <span>Rating: {(comp.state === "Overweight" ? 5.5 : comp.state === "Underweight" ? 6.5 : 8.5).toFixed(1)}/10</span>
+                        </div>
                       </div>
                       <Badge variant={comp.state === "Overweight" ? "danger" : comp.state === "Healthy" ? "success" : "warning"}>
                         {comp.state}
@@ -1542,6 +1582,118 @@ export const PortfolioDoctorPage: React.FC = () => {
               goal={goal}
               history={history}
             />
+
+            {/* AI Memory Profile (Enterprise Feature) */}
+            <Card 
+              title="AI Memory Profile" 
+              subtitle="Personalized AI preferences synced to database"
+              extra={<Brain size={18} color="var(--accent-purple)" />}
+            >
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "13px" }}>
+                {!isEditingMemory ? (
+                  <>
+                    <div style={{ background: "rgba(255,255,255,0.015)", border: "1px solid var(--border)", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Trading Style:</span>
+                        <strong style={{ color: "var(--text-primary)" }}>{aiMemory.trading_style}</strong>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Preferred Sectors:</span>
+                        <strong style={{ color: "var(--text-primary)" }}>{aiMemory.preferred_sectors.join(", ")}</strong>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Holding Period:</span>
+                        <strong style={{ color: "var(--text-primary)" }}>{aiMemory.avg_holding_period}</strong>
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Risk Appetite:</span>
+                        <strong style={{ color: "var(--text-primary)" }}>{aiMemory.risk_appetite}</strong>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px", borderTop: "1px solid var(--border)", paddingTop: "6px" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Best Setup:</span>
+                        <span style={{ color: "var(--text-primary)", fontStyle: "italic" }}>"{aiMemory.best_performing_setup}"</span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                        <span style={{ color: "var(--text-secondary)" }}>Common Mistakes:</span>
+                        <span style={{ color: "var(--text-primary)" }}>
+                          {aiMemory.most_common_mistakes.map((m, idx) => (
+                            <div key={idx}>• {m}</div>
+                          ))}
+                        </span>
+                      </div>
+                    </div>
+                    <Button variant="secondary" onClick={() => { setEditedMemory(aiMemory); setIsEditingMemory(true); }} style={{ width: "100%" }}>
+                      Edit Profile
+                    </Button>
+                  </>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    <div>
+                      <label style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>TRADING STYLE</label>
+                      <select
+                        value={editedMemory.trading_style}
+                        onChange={(e) => setEditedMemory({ ...editedMemory, trading_style: e.target.value })}
+                        style={{ width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text-primary)", padding: "6px 10px", outline: "none", fontSize: "12px" }}
+                      >
+                        <option value="Scalper">Scalper</option>
+                        <option value="Day Trader">Day Trader</option>
+                        <option value="Swing Trader">Swing Trader</option>
+                        <option value="Investor">Investor</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>RISK APPETITE</label>
+                      <select
+                        value={editedMemory.risk_appetite}
+                        onChange={(e) => setEditedMemory({ ...editedMemory, risk_appetite: e.target.value })}
+                        style={{ width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text-primary)", padding: "6px 10px", outline: "none", fontSize: "12px" }}
+                      >
+                        <option value="Low">Low</option>
+                        <option value="Medium">Medium</option>
+                        <option value="High">High</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>HOLDING PERIOD</label>
+                      <select
+                        value={editedMemory.avg_holding_period}
+                        onChange={(e) => setEditedMemory({ ...editedMemory, avg_holding_period: e.target.value })}
+                        style={{ width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text-primary)", padding: "6px 10px", outline: "none", fontSize: "12px" }}
+                      >
+                        <option value="Short Term">Short Term (1-7 days)</option>
+                        <option value="Medium Term">Medium Term (weeks)</option>
+                        <option value="Long Term">Long Term (months/years)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: "11px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>BEST PERFORMING SETUP</label>
+                      <textarea
+                        value={editedMemory.best_performing_setup}
+                        onChange={(e) => setEditedMemory({ ...editedMemory, best_performing_setup: e.target.value })}
+                        style={{ width: "100%", background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "6px", color: "var(--text-primary)", padding: "6px 10px", outline: "none", fontSize: "12px", resize: "vertical", minHeight: "60px" }}
+                      />
+                    </div>
+                    <div style={{ display: "flex", gap: "10px", marginTop: "4px" }}>
+                      <Button variant="secondary" onClick={() => setIsEditingMemory(false)} style={{ flex: 1 }}>Cancel</Button>
+                      <Button variant="primary" onClick={async () => {
+                        setSavingMemory(true);
+                        try {
+                          await portfolioDoctorApi.updateAIMemory(editedMemory);
+                          setAIMemory(editedMemory);
+                          setIsEditingMemory(false);
+                        } catch (err) {
+                          console.error("Failed to save memory:", err);
+                        } finally {
+                          setSavingMemory(false);
+                        }
+                      }} style={{ flex: 1 }} disabled={savingMemory}>
+                        {savingMemory ? "Saving..." : "Save"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
 
           </div>
         </div>

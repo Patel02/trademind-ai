@@ -90,6 +90,9 @@ export interface PortfolioDiagnosis {
     risk: "Low" | "Medium" | "High";
     rating: number;
   }[];
+  stabilityScore: number;
+  growthPotentialScore: number;
+  grade: "A+" | "A" | "B" | "C" | "D" | "E" | "F";
 }
 
 export interface StressTestResult {
@@ -620,6 +623,33 @@ export const portfolioDoctorService = {
       };
     });
 
+    // Stability Score calculation (Stability depends on cash position, low concentration, and low raw risk score)
+    const concentrationFactor = Math.max(0, 100 - (topHolding.allocationPct * 2));
+    const stabilityScore = Math.max(20, Math.min(100, Math.round(
+      (100 - rawRiskScore) * 0.6 + concentrationFactor * 0.2 + cashAllocationScore * 0.2
+    )));
+
+    // Growth Potential calculation (based on holding weights, average return, and sector exposure weights)
+    let growthPotentialScore = 60;
+    if (uniqueHoldingsCount > 0) {
+      const positiveReturnsAvg = positions
+        .filter(p => p.quantity > 0 && p.current_price >= p.avg_entry_price)
+        .reduce((sum, p) => sum + ((p.current_price - p.avg_entry_price) / p.avg_entry_price) * 100, 0);
+      growthPotentialScore = Math.max(25, Math.min(100, Math.round(
+        60 + (positiveReturnsAvg * 0.5) - (rawRiskScore * 0.2) + (goal === "Aggressive" ? 10 : goal === "Conservative" ? -10 : 0)
+      )));
+    }
+
+    // Letter Grade derived from health score
+    let grade: "A+" | "A" | "B" | "C" | "D" | "E" | "F" = "C";
+    if (healthScore >= 95) grade = "A+";
+    else if (healthScore >= 80) grade = "A";
+    else if (healthScore >= 70) grade = "B";
+    else if (healthScore >= 60) grade = "C";
+    else if (healthScore >= 50) grade = "D";
+    else if (healthScore >= 40) grade = "E";
+    else grade = "F";
+
     return {
       nav,
       holdingsValue,
@@ -666,7 +696,10 @@ export const portfolioDoctorService = {
       },
       healthTrend,
       correlatedAssetsAlerts,
-      positionRatings
+      positionRatings,
+      stabilityScore,
+      growthPotentialScore,
+      grade
     };
   },
 
@@ -773,10 +806,12 @@ export const portfolioDoctorService = {
     const diag = this.diagnosePortfolio(portfolio, positions);
 
     if (userId === "00000000-0000-0000-0000-000000000000") {
+      const snapId = `snap-${Math.random().toString(36).substr(2, 9)}`;
+      
       const stored = localStorage.getItem("trademind_portfolio_snapshots_v2");
       const snapshots = stored ? JSON.parse(stored) : [];
       snapshots.push({
-        id: `snap-${Math.random().toString(36).substr(2, 9)}`,
+        id: snapId,
         user_id: userId,
         health_score: diag.healthScore,
         risk_score: diag.riskScore,
@@ -785,11 +820,69 @@ export const portfolioDoctorService = {
         created_at: new Date().toISOString()
       });
       localStorage.setItem("trademind_portfolio_snapshots_v2", JSON.stringify(snapshots));
+
+      // Sector Analysis Local Storage
+      const storedSectors = localStorage.getItem("trademind_portfolio_sectors_v2");
+      const sectors = storedSectors ? JSON.parse(storedSectors) : [];
+      diag.composition.forEach(c => {
+        sectors.push({
+          snapshot_id: snapId,
+          sector: c.sector,
+          allocation_pct: c.pct,
+          state: c.state,
+          risk_level: (c.sector === "IT Services" || c.sector === "Financials") ? "Medium" : "Low",
+          ai_rating: c.state === "Overweight" ? 5.5 : c.state === "Underweight" ? 6.5 : 8.5,
+          created_at: new Date().toISOString()
+        });
+      });
+      localStorage.setItem("trademind_portfolio_sectors_v2", JSON.stringify(sectors.slice(-100)));
+
+      // Risk Analysis Local Storage
+      const storedRisks = localStorage.getItem("trademind_portfolio_risks_v2");
+      const risks = storedRisks ? JSON.parse(storedRisks) : [];
+      risks.push({
+        snapshot_id: snapId,
+        concentration_risk_pct: diag.concentrationRisk.topHoldingPct,
+        top_holding_symbol: diag.concentrationRisk.topHoldingSymbol,
+        volatility_drag: diag.volatilityDrag,
+        risk_index: diag.riskIndex,
+        created_at: new Date().toISOString()
+      });
+      localStorage.setItem("trademind_portfolio_risks_v2", JSON.stringify(risks.slice(-50)));
+
+      // Health History Local Storage
+      const storedHistory = localStorage.getItem("trademind_portfolio_history_v2");
+      const histories = storedHistory ? JSON.parse(storedHistory) : [];
+      histories.push({
+        health_score: diag.healthScore,
+        stability_score: diag.stabilityScore,
+        growth_potential_score: diag.growthPotentialScore,
+        risk_score: diag.riskScore,
+        grade: diag.grade,
+        recorded_date: new Date().toISOString().split("T")[0],
+        created_at: new Date().toISOString()
+      });
+      localStorage.setItem("trademind_portfolio_history_v2", JSON.stringify(histories.slice(-50)));
+
+      // Recommendations Local Storage
+      const storedRecs = localStorage.getItem("trademind_portfolio_recommendations_v2");
+      const recs = storedRecs ? JSON.parse(storedRecs) : [];
+      diag.suggestions.forEach(s => {
+        recs.push({
+          id: `rec-${Math.random().toString(36).substr(2, 9)}`,
+          recommendation: s.text,
+          priority: s.priority,
+          status: "active",
+          created_at: new Date().toISOString()
+        });
+      });
+      localStorage.setItem("trademind_portfolio_recommendations_v2", JSON.stringify(recs.slice(-50)));
       return;
     }
 
     try {
-      await supabase
+      // 1. Save Snapshot
+      const { data: snapData, error: snapError } = await supabase
         .from("portfolio_snapshots")
         .insert({
           user_id: userId,
@@ -797,7 +890,55 @@ export const portfolioDoctorService = {
           risk_score: diag.riskScore,
           diversification_score: diag.diversificationScore,
           sector_score: diag.sectorBalanceScore
-        });
+        })
+        .select("id")
+        .single();
+        
+      if (snapError) throw snapError;
+      const snapshotId = snapData.id;
+
+      // 2. Save Sector Analysis details
+      const sectorInserts = diag.composition.map(c => ({
+        user_id: userId,
+        snapshot_id: snapshotId,
+        sector: c.sector,
+        allocation_pct: c.pct,
+        state: c.state,
+        risk_level: (c.sector === "IT Services" || c.sector === "Financials") ? "Medium" : "Low",
+        ai_rating: c.state === "Overweight" ? 5.5 : c.state === "Underweight" ? 6.5 : 8.5
+      }));
+      await supabase.from("portfolio_sector_analysis").insert(sectorInserts);
+
+      // 3. Save Risk Analysis details
+      await supabase.from("portfolio_risk_analysis").insert({
+        user_id: userId,
+        snapshot_id: snapshotId,
+        concentration_risk_pct: diag.concentrationRisk.topHoldingPct,
+        top_holding_symbol: diag.concentrationRisk.topHoldingSymbol,
+        volatility_drag: diag.volatilityDrag,
+        risk_index: diag.riskIndex
+      });
+
+      // 4. Save Health History detailed metrics
+      await supabase.from("portfolio_health_history").insert({
+        user_id: userId,
+        health_score: diag.healthScore,
+        stability_score: diag.stabilityScore,
+        growth_potential_score: diag.growthPotentialScore,
+        risk_score: diag.riskScore,
+        grade: diag.grade
+      });
+
+      // 5. Save AI Recommendations
+      const recInserts = diag.suggestions.map(s => ({
+        user_id: userId,
+        recommendation: s.text,
+        priority: s.priority,
+        status: "active"
+      }));
+      if (recInserts.length > 0) {
+        await supabase.from("portfolio_ai_recommendations").insert(recInserts);
+      }
     } catch (err) {
       console.warn("Failed to save portfolio snapshot to database, skipping.", err);
     }
@@ -1305,6 +1446,110 @@ export const portfolioDoctorService = {
       },
       warnings
     };
+  },
+
+  /**
+   * Save user memory preference
+   */
+  async saveUserMemory(userId: string, memory: any): Promise<void> {
+    if (userId === "00000000-0000-0000-0000-000000000000") {
+      localStorage.setItem("trademind_user_memory", JSON.stringify(memory));
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from("portfolio_user_memory")
+        .upsert({
+          user_id: userId,
+          trading_style: memory.trading_style,
+          preferred_sectors: memory.preferred_sectors,
+          avg_holding_period: memory.avg_holding_period,
+          risk_appetite: memory.risk_appetite,
+          best_performing_setup: memory.best_performing_setup || "",
+          most_common_mistakes: memory.most_common_mistakes,
+          updated_at: new Date().toISOString()
+        }, { onConflict: "user_id" });
+      if (error) throw error;
+    } catch (err) {
+      console.warn("Failed to save user memory to database, saving locally.", err);
+      localStorage.setItem("trademind_user_memory", JSON.stringify(memory));
+    }
+  },
+
+  /**
+   * Fetch user memory preference
+   */
+  async getUserMemory(userId: string): Promise<any> {
+    const defaultMemory = {
+      trading_style: "Balanced",
+      preferred_sectors: ["IT Services", "Financials"],
+      avg_holding_period: "Medium Term",
+      risk_appetite: "Medium",
+      best_performing_setup: "TCS swing trade after sector pullback",
+      most_common_mistakes: ["Over-allocating in IT sector", "Holding loss makers too long"]
+    };
+
+    if (userId === "00000000-0000-0000-0000-000000000000") {
+      const stored = localStorage.getItem("trademind_user_memory");
+      return stored ? JSON.parse(stored) : defaultMemory;
+    }
+    try {
+      const { data, error } = await supabase
+        .from("portfolio_user_memory")
+        .select("*")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        return {
+          trading_style: data.trading_style,
+          preferred_sectors: data.preferred_sectors,
+          avg_holding_period: data.avg_holding_period,
+          risk_appetite: data.risk_appetite,
+          best_performing_setup: data.best_performing_setup,
+          most_common_mistakes: data.most_common_mistakes
+        };
+      }
+    } catch (err) {
+      console.warn("Failed to fetch user memory from database, loading locally.", err);
+    }
+    const stored = localStorage.getItem("trademind_user_memory");
+    return stored ? JSON.parse(stored) : defaultMemory;
+  },
+
+  /**
+   * Log monitoring telemetry metric
+   */
+  async logMonitoringMetric(executionTimeMs: number, dbQueryTimeMs: number, cacheHit: boolean, apiErrors: string | null): Promise<void> {
+    const userId = await getUserId();
+    if (userId === "00000000-0000-0000-0000-000000000000") {
+      const stored = localStorage.getItem("trademind_doctor_monitoring");
+      const logs = stored ? JSON.parse(stored) : [];
+      logs.push({
+        execution_time_ms: executionTimeMs,
+        db_query_time_ms: dbQueryTimeMs,
+        cache_hit: cacheHit,
+        api_errors: apiErrors,
+        calc_version: "1.0.0",
+        created_at: new Date().toISOString()
+      });
+      localStorage.setItem("trademind_doctor_monitoring", JSON.stringify(logs.slice(-50)));
+      return;
+    }
+    try {
+      await supabase
+        .from("portfolio_doctor_monitoring")
+        .insert({
+          user_id: userId,
+          execution_time_ms: executionTimeMs,
+          db_query_time_ms: dbQueryTimeMs,
+          cache_hit: cacheHit,
+          api_errors: apiErrors,
+          calc_version: "1.0.0"
+        });
+    } catch (err) {
+      console.warn("Failed to log monitoring metrics to database", err);
+    }
   }
 };
 
