@@ -25,58 +25,222 @@ export const portfolioDoctorApi = {
   },
 
   /**
-   * GET /portfolio
-   * Fetches the complete, latest portfolio diagnostic analysis.
+   * GET /portfolio/overview
+   * Fetches core portfolio balances and NAV metrics.
    */
-  async getPortfolioDiagnosis(goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
+  async getPortfolioOverview(goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
     const startTime = performance.now();
     const userId = await this.getAuthUserId();
 
-    // 1. Rate Limiting: 20 requests per minute
-    rateLimiter.checkLimit(`get-portfolio-${userId}`, 20, 60000);
+    // Rate Limiting: 30 requests per minute
+    rateLimiter.checkLimit(`overview-${userId}`, 30, 60000);
 
-    // 2. Fetch dependencies
+    const dbQueryStart = performance.now();
+    const portfolio = await paperTradingService.getPortfolio();
+    const positions = await paperTradingService.getPositions();
+    const dbQueryTime = performance.now() - dbQueryStart;
+
+    const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal);
+    const totalTime = performance.now() - startTime;
+
+    await auditService.logAction("GET_PORTFOLIO_OVERVIEW", "portfolio", userId, {
+      goal,
+      nav: diag.nav
+    });
+
+    await portfolioDoctorService.logMonitoringMetric(
+      Math.round(totalTime),
+      Math.round(dbQueryTime),
+      false,
+      null
+    );
+
+    return {
+      nav: diag.nav,
+      holdingsValue: diag.holdingsValue,
+      holdingsCost: diag.holdingsCost,
+      unrealizedPnL: diag.unrealizedPnL,
+      unrealizedPnLPct: diag.unrealizedPnLPct,
+      cashPct: diag.cashPct
+    };
+  },
+
+  /**
+   * GET /portfolio/health
+   * Fetches overall portfolio health scores and individual component grades.
+   */
+  async getPortfolioHealth(goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
+    const startTime = performance.now();
+    const userId = await this.getAuthUserId();
+
+    // Rate Limiting: 30 requests per minute
+    rateLimiter.checkLimit(`health-${userId}`, 30, 60000);
+
     const dbQueryStart = performance.now();
     const portfolio = await paperTradingService.getPortfolio();
     const positions = await paperTradingService.getPositions();
     const history = await portfolioDoctorService.getSnapshotHistory();
     const dbQueryTime = performance.now() - dbQueryStart;
 
-    // 3. Calculation and telemetry tracking
     const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal, history);
     const totalTime = performance.now() - startTime;
 
-    // 4. Log Audit Trail
-    await auditService.logAction("GET_PORTFOLIO_DIAGNOSIS", "portfolio", userId, {
+    await auditService.logAction("GET_PORTFOLIO_HEALTH", "portfolio", userId, {
       goal,
-      healthScore: diag.healthScore,
-      positionsCount: positions.length
+      healthScore: diag.healthScore
     });
 
-    // 5. Write Enterprise Monitoring Log
     await portfolioDoctorService.logMonitoringMetric(
       Math.round(totalTime),
       Math.round(dbQueryTime),
-      false, // Cache hit/miss
+      false,
       null
     );
 
-    return diag;
+    return {
+      healthScore: diag.healthScore,
+      diversificationScore: diag.diversificationScore,
+      riskHealthScore: diag.riskHealthScore,
+      sectorBalanceScore: diag.sectorBalanceScore,
+      cashAllocationScore: diag.cashAllocationScore,
+      positionQualityScore: diag.positionQualityScore,
+      grade: diag.grade,
+      stabilityScore: diag.stabilityScore,
+      growthPotentialScore: diag.growthPotentialScore,
+      healthTrend: diag.healthTrend
+    };
   },
 
   /**
-   * GET /portfolio/health
-   * Fetches the health history timeline snapshots.
+   * GET /portfolio/xray
+   * Fetches sector composition weights and dynamic AI diagnostic suggestions.
    */
-  async getHealthHistory() {
+  async getPortfolioXRay(goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
+    const startTime = performance.now();
     const userId = await this.getAuthUserId();
 
-    // 1. Rate Limiting: 30 requests per minute
-    rateLimiter.checkLimit(`get-history-${userId}`, 30, 60000);
+    // Rate Limiting: 30 requests per minute
+    rateLimiter.checkLimit(`xray-${userId}`, 30, 60000);
+
+    const dbQueryStart = performance.now();
+    const portfolio = await paperTradingService.getPortfolio();
+    const positions = await paperTradingService.getPositions();
+    const dbQueryTime = performance.now() - dbQueryStart;
+
+    const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal);
+    const totalTime = performance.now() - startTime;
+
+    await auditService.logAction("GET_PORTFOLIO_XRAY", "portfolio", userId, {
+      goal,
+      suggestionsCount: diag.suggestions.length
+    });
+
+    await portfolioDoctorService.logMonitoringMetric(
+      Math.round(totalTime),
+      Math.round(dbQueryTime),
+      false,
+      null
+    );
+
+    return {
+      composition: diag.composition,
+      suggestions: diag.suggestions,
+      behaviorAnalytics: diag.behaviorAnalytics,
+      premiumMetrics: diag.premiumMetrics,
+      correlatedAssetsAlerts: diag.correlatedAssetsAlerts
+    };
+  },
+
+  /**
+   * GET /portfolio/sectors
+   * Fetches sector allocations and balance metrics.
+   */
+  async getPortfolioSectors(goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
+    const startTime = performance.now();
+    const userId = await this.getAuthUserId();
+
+    // Rate Limiting: 30 requests per minute
+    rateLimiter.checkLimit(`sectors-${userId}`, 30, 60000);
+
+    const dbQueryStart = performance.now();
+    const portfolio = await paperTradingService.getPortfolio();
+    const positions = await paperTradingService.getPositions();
+    const dbQueryTime = performance.now() - dbQueryStart;
+
+    const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal);
+    const totalTime = performance.now() - startTime;
+
+    await auditService.logAction("GET_PORTFOLIO_SECTORS", "portfolio", userId, {
+      goal
+    });
+
+    await portfolioDoctorService.logMonitoringMetric(
+      Math.round(totalTime),
+      Math.round(dbQueryTime),
+      false,
+      null
+    );
+
+    return {
+      sectorAllocations: diag.sectorAllocations,
+      sectorBalanceScore: diag.sectorBalanceScore
+    };
+  },
+
+  /**
+   * GET /portfolio/risk
+   * Fetches risk ratings, volatility drag and position ratings metrics.
+   */
+  async getPortfolioRisk(goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
+    const startTime = performance.now();
+    const userId = await this.getAuthUserId();
+
+    // Rate Limiting: 30 requests per minute
+    rateLimiter.checkLimit(`risk-${userId}`, 30, 60000);
+
+    const dbQueryStart = performance.now();
+    const portfolio = await paperTradingService.getPortfolio();
+    const positions = await paperTradingService.getPositions();
+    const dbQueryTime = performance.now() - dbQueryStart;
+
+    const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal);
+    const totalTime = performance.now() - startTime;
+
+    await auditService.logAction("GET_PORTFOLIO_RISK", "portfolio", userId, {
+      goal,
+      riskIndex: diag.riskIndex
+    });
+
+    await portfolioDoctorService.logMonitoringMetric(
+      Math.round(totalTime),
+      Math.round(dbQueryTime),
+      false,
+      null
+    );
+
+    return {
+      riskScore: diag.riskScore,
+      riskHealthScore: diag.riskHealthScore,
+      riskIndex: diag.riskIndex,
+      volatilityDrag: diag.volatilityDrag,
+      concentrationRisk: diag.concentrationRisk,
+      correlatedAssetsAlerts: diag.correlatedAssetsAlerts
+    };
+  },
+
+  /**
+   * GET /portfolio/history
+   * Fetches historical snapshot timeline records.
+   */
+  async getPortfolioHistory() {
+    const userId = await this.getAuthUserId();
+
+    // Rate Limiting: 30 requests per minute
+    rateLimiter.checkLimit(`history-${userId}`, 30, 60000);
 
     const history = await portfolioDoctorService.getSnapshotHistory();
 
-    await auditService.logAction("GET_HEALTH_HISTORY", "portfolio_snapshots", userId, {
+    await auditService.logAction("GET_PORTFOLIO_HISTORY", "portfolio_snapshots", userId, {
       snapshotsCount: history.length
     });
 
@@ -85,19 +249,18 @@ export const portfolioDoctorApi = {
 
   /**
    * POST /portfolio/simulate
-   * Simulates trade impact with full schema validation and rate limiting.
+   * Simulates trade impact parameters.
    */
   async simulateTrade(payload: { symbol: string; action: "BUY" | "SELL"; quantity: number; price: number }, goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
     const startTime = performance.now();
     const userId = await this.getAuthUserId();
 
-    // 1. Rate Limiting: 10 simulation runs per 10 seconds (spam prevention)
+    // Rate Limiting: 10 simulation runs per 10 seconds
     rateLimiter.checkLimit(`simulate-${userId}`, 10, 10000);
 
-    // 2. Schema Validation
+    // Schema Validation
     const validated = portfolioSimulationSchema.parse(payload);
 
-    // 3. Execute math simulation
     const dbQueryStart = performance.now();
     const portfolio = await paperTradingService.getPortfolio();
     const positions = await paperTradingService.getPositions();
@@ -113,7 +276,7 @@ export const portfolioDoctorApi = {
       goal
     );
 
-    // 4. Persistence: If authenticated, log simulation parameters
+    // Persistence in Supabase
     if (userId !== "00000000-0000-0000-0000-000000000000") {
       try {
         await supabase.from("portfolio_simulations").insert({
@@ -134,7 +297,6 @@ export const portfolioDoctorApi = {
 
     const totalTime = performance.now() - startTime;
 
-    // 5. Audit Log
     await auditService.logAction("SIMULATE_TRADE_IMPACT", "simulation", userId, {
       symbol: validated.symbol,
       action: validated.action,
@@ -143,11 +305,10 @@ export const portfolioDoctorApi = {
       healthChange: `${result.current.healthScore} -> ${result.simulated.healthScore}`
     });
 
-    // 6. Telemetry Monitoring
     await portfolioDoctorService.logMonitoringMetric(
       Math.round(totalTime),
       Math.round(dbQueryTime),
-      true, // Simulation utilizes cached/loaded memory states
+      true,
       null
     );
 
@@ -155,8 +316,47 @@ export const portfolioDoctorApi = {
   },
 
   /**
+   * Backward Compatibility Facade GET /portfolio
+   */
+  async getPortfolioDiagnosis(goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced") {
+    const startTime = performance.now();
+    const userId = await this.getAuthUserId();
+    rateLimiter.checkLimit(`get-portfolio-${userId}`, 20, 60000);
+
+    const dbQueryStart = performance.now();
+    const portfolio = await paperTradingService.getPortfolio();
+    const positions = await paperTradingService.getPositions();
+    const history = await portfolioDoctorService.getSnapshotHistory();
+    const dbQueryTime = performance.now() - dbQueryStart;
+
+    const diag = portfolioDoctorService.diagnosePortfolio(portfolio, positions, goal, history);
+    const totalTime = performance.now() - startTime;
+
+    await auditService.logAction("GET_PORTFOLIO_DIAGNOSIS", "portfolio", userId, {
+      goal,
+      healthScore: diag.healthScore,
+      positionsCount: positions.length
+    });
+
+    await portfolioDoctorService.logMonitoringMetric(
+      Math.round(totalTime),
+      Math.round(dbQueryTime),
+      false,
+      null
+    );
+
+    return diag;
+  },
+
+  /**
+   * Backward Compatibility Facade GET /portfolio/health (history snapshots)
+   */
+  async getHealthHistory() {
+    return this.getPortfolioHistory();
+  },
+
+  /**
    * GET /portfolio/memory
-   * Retrieves the AI user memory preferences.
    */
   async getAIMemory() {
     const userId = await this.getAuthUserId();
@@ -165,7 +365,6 @@ export const portfolioDoctorApi = {
 
   /**
    * POST /portfolio/memory
-   * Updates AI user memory profile.
    */
   async updateAIMemory(payload: { trading_style: string; preferred_sectors: string[]; avg_holding_period: string; risk_appetite: string; best_performing_setup?: string; most_common_mistakes: string[] }) {
     const userId = await this.getAuthUserId();

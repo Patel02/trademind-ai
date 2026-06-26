@@ -123,6 +123,212 @@ export const stockSectors: Record<string, { sector: string; color: string }> = {
 
 export const portfolioDoctorService = {
   /**
+   * Calculate overall health score based on goal-adapted weights of individual sub-scores.
+   */
+  calculateHealth(
+    diversificationScore: number,
+    riskHealthScore: number,
+    sectorBalanceScore: number,
+    cashAllocationScore: number,
+    positionQualityScore: number,
+    goal: "Conservative" | "Balanced" | "Aggressive" = "Balanced"
+  ): number {
+    let healthScore = 100;
+    if (goal === "Conservative") {
+      healthScore = Math.round(
+        diversificationScore * 0.30 +
+        riskHealthScore * 0.25 +
+        sectorBalanceScore * 0.20 +
+        cashAllocationScore * 0.15 +
+        positionQualityScore * 0.10
+      );
+    } else if (goal === "Aggressive") {
+      healthScore = Math.round(
+        diversificationScore * 0.15 +
+        riskHealthScore * 0.20 +
+        sectorBalanceScore * 0.15 +
+        cashAllocationScore * 0.20 +
+        positionQualityScore * 0.30
+      );
+    } else { // Balanced
+      healthScore = Math.round(
+        diversificationScore * 0.20 +
+        riskHealthScore * 0.30 +
+        sectorBalanceScore * 0.20 +
+        cashAllocationScore * 0.15 +
+        positionQualityScore * 0.15
+      );
+    }
+    return Math.max(20, Math.min(100, healthScore));
+  },
+
+  /**
+   * Calculate diversification score and badge level.
+   */
+  calculateDiversification(
+    positionsCount: number,
+    sectorCount: number,
+    stockAllocations: StockAllocation[],
+    singlePositionLimit: number,
+    targetStocksCount: number
+  ): { score: number; level: string; badge: "success" | "info" | "warning" | "danger" } {
+    let diversificationScore = 100;
+    let diversificationLevel = "No Holdings";
+    let diversificationBadge: "success" | "info" | "warning" | "danger" = "warning";
+
+    if (positionsCount === 0) {
+      diversificationScore = 100;
+      diversificationLevel = "100% Cash Buffer";
+      diversificationBadge = "success";
+    } else {
+      const stocksRatio = Math.min(1.0, positionsCount / targetStocksCount);
+      const sectorDiversity = Math.min(1.0, sectorCount / 3);
+      
+      let weightPenalties = 0;
+      stockAllocations.forEach(sa => {
+        if (sa.allocationPct > singlePositionLimit) {
+          weightPenalties += (sa.allocationPct - singlePositionLimit) * 1.2;
+        }
+      });
+
+      diversificationScore = Math.max(10, Math.min(100, Math.round(
+        (stocksRatio * 60 + sectorDiversity * 40) - weightPenalties
+      )));
+
+      if (diversificationScore >= 80) {
+        diversificationLevel = "Well Diversified";
+        diversificationBadge = "success";
+      } else if (diversificationScore >= 55) {
+        diversificationLevel = "Moderate";
+        diversificationBadge = "info";
+      } else if (diversificationScore >= 35) {
+        diversificationLevel = "Concentrated";
+        diversificationBadge = "warning";
+      } else {
+        diversificationLevel = "Highly Concentrated";
+        diversificationBadge = "danger";
+      }
+    }
+
+    return {
+      score: diversificationScore,
+      level: diversificationLevel,
+      badge: diversificationBadge
+    };
+  },
+
+  /**
+   * Calculate raw risk score, risk health score, and risk index class.
+   */
+  calculateRisk(
+    positionsCount: number,
+    stockAllocations: StockAllocation[],
+    sectorAllocations: SectorAllocation[],
+    unrealizedPnLPct: number,
+    cashPct: number,
+    singlePositionLimit: number,
+    sectorExposureLimit: number,
+    minOptimalCash: number
+  ): { rawRiskScore: number; riskHealthScore: number; riskIndex: "Low" | "Medium" | "High" } {
+    let rawRiskScore = 15; // Baseline safe risk
+    if (positionsCount > 0) {
+      stockAllocations.forEach((sa) => {
+        if (sa.allocationPct > singlePositionLimit) {
+          rawRiskScore += Math.round((sa.allocationPct - singlePositionLimit) * 1.5);
+        }
+      });
+      sectorAllocations.forEach((sec) => {
+        if (sec.allocationPct > sectorExposureLimit) {
+          rawRiskScore += 15;
+        }
+      });
+      if (unrealizedPnLPct < -5) {
+        rawRiskScore += Math.min(25, Math.abs(Math.round(unrealizedPnLPct)));
+      }
+      if (cashPct < minOptimalCash) {
+        rawRiskScore += 15;
+      }
+    }
+    rawRiskScore = Math.max(10, Math.min(95, rawRiskScore));
+    const riskHealthScore = 100 - rawRiskScore;
+
+    let riskIndex: "Low" | "Medium" | "High" = "Low";
+    if (rawRiskScore > 65) {
+      riskIndex = "High";
+    } else if (rawRiskScore > 35) {
+      riskIndex = "Medium";
+    }
+
+    return {
+      rawRiskScore,
+      riskHealthScore,
+      riskIndex
+    };
+  },
+
+  /**
+   * Calculate sector exposure score.
+   */
+  calculateSectorExposure(
+    positionsCount: number,
+    sectorAllocations: SectorAllocation[],
+    sectorExposureLimit: number
+  ): number {
+    let sectorBalanceScore = 100;
+    if (positionsCount > 0) {
+      sectorAllocations.forEach((sec) => {
+        if (sec.allocationPct > sectorExposureLimit) {
+          sectorBalanceScore -= 20;
+          if (sec.allocationPct > sectorExposureLimit + 15) {
+            sectorBalanceScore -= 15;
+          }
+        }
+      });
+
+      const hasFinancials = sectorAllocations.some((s) => s.sector === "Financials");
+      const hasEnergy = sectorAllocations.some((s) => s.sector === "Energy & Infra");
+      const hasIT = sectorAllocations.some((s) => s.sector === "IT Services");
+      if (!hasFinancials) sectorBalanceScore -= 15;
+      if (!hasEnergy) sectorBalanceScore -= 10;
+      if (!hasIT) sectorBalanceScore -= 10;
+    }
+    return Math.max(10, Math.min(100, sectorBalanceScore));
+  },
+
+  /**
+   * Calculate cash allocation score.
+   */
+  calculateCashAllocation(
+    cashPct: number,
+    minOptimalCash: number,
+    maxOptimalCash: number
+  ): number {
+    let cashAllocationScore = 100;
+    if (cashPct >= minOptimalCash && cashPct <= maxOptimalCash) {
+      cashAllocationScore = 100;
+    } else if (cashPct > maxOptimalCash) {
+      cashAllocationScore = Math.max(40, 100 - Math.round((cashPct - maxOptimalCash) * 0.8)); // Cash drag
+    } else {
+      cashAllocationScore = Math.max(30, 100 - Math.round((minOptimalCash - cashPct) * 4));   // Low liquidity risk
+    }
+    return cashAllocationScore;
+  },
+
+  /**
+   * Calculate position quality score.
+   */
+  calculatePositionQuality(
+    positionsCount: number,
+    profitablePositionsCount: number
+  ): number {
+    let positionQualityScore = 100;
+    if (positionsCount > 0) {
+      positionQualityScore = Math.round(50 + 50 * (profitablePositionsCount / positionsCount));
+    }
+    return positionQualityScore;
+  },
+
+  /**
    * Run detailed diagnostic audit on the portfolio cash balance and positions.
    * Adapts constraints and recommendations based on user goals: Conservative, Balanced, Aggressive.
    */
@@ -226,153 +432,67 @@ export const portfolioDoctorService = {
 
     // 6. Sub-Score: Diversification Score
     const uniqueHoldingsCount = positions.filter((p) => p.quantity > 0).length;
-    let diversificationScore = 100;
-    let diversificationLevel = "No Holdings";
-    let diversificationBadge: "success" | "info" | "warning" | "danger" = "warning";
+    const divResult = this.calculateDiversification(
+      uniqueHoldingsCount,
+      sectorAllocations.length,
+      stockAllocations,
+      singlePositionLimit,
+      targetStocksCount
+    );
+    const diversificationScore = divResult.score;
+    const diversificationLevel = divResult.level;
+    const diversificationBadge = divResult.badge;
 
-    if (uniqueHoldingsCount === 0) {
-      diversificationScore = 100;
-      diversificationLevel = "100% Cash Buffer";
-      diversificationBadge = "success";
-    } else {
-      // Calculate based on stocks count relative to target and weight distribution
-      const stocksRatio = Math.min(1.0, uniqueHoldingsCount / targetStocksCount);
-      const sectorDiversity = Math.min(1.0, sectorAllocations.length / 3);
-      
-      // Penalty for uneven weights
-      let weightPenalties = 0;
-      stockAllocations.forEach(sa => {
-        if (sa.allocationPct > singlePositionLimit) {
-          weightPenalties += (sa.allocationPct - singlePositionLimit) * 1.2;
-        }
-      });
-
-      diversificationScore = Math.max(10, Math.min(100, Math.round(
-        (stocksRatio * 60 + sectorDiversity * 40) - weightPenalties
-      )));
-
-      if (diversificationScore >= 80) {
-        diversificationLevel = "Well Diversified";
-        diversificationBadge = "success";
-      } else if (diversificationScore >= 55) {
-        diversificationLevel = "Moderate";
-        diversificationBadge = "info";
-      } else if (diversificationScore >= 35) {
-        diversificationLevel = "Concentrated";
-        diversificationBadge = "warning";
-      } else {
-        diversificationLevel = "Highly Concentrated";
-        diversificationBadge = "danger";
-      }
-    }
-
-    // 7. Sub-Score: Risk Score (Raw risk index: lower is safer, 0-100)
-    let rawRiskScore = 15; // Baseline safe risk
-    if (uniqueHoldingsCount > 0) {
-      // Risk factor: Concentration
-      stockAllocations.forEach((sa) => {
-        if (sa.allocationPct > singlePositionLimit) {
-          rawRiskScore += Math.round((sa.allocationPct - singlePositionLimit) * 1.5);
-        }
-      });
-      // Risk factor: Sector Concentration
-      sectorAllocations.forEach((sec) => {
-        if (sec.allocationPct > sectorExposureLimit) {
-          rawRiskScore += 15;
-        }
-      });
-      // Risk factor: Drawdowns
-      if (unrealizedPnLPct < -5) {
-        rawRiskScore += Math.min(25, Math.abs(Math.round(unrealizedPnLPct)));
-      }
-      // Risk factor: Cash allocation (out of bounds)
-      if (cashPct < minOptimalCash) {
-        rawRiskScore += 15;
-      }
-    }
-    rawRiskScore = Math.max(10, Math.min(95, rawRiskScore));
-    const riskHealthScore = 100 - rawRiskScore;
+    // 7. Sub-Score: Risk Score
+    const riskResult = this.calculateRisk(
+      uniqueHoldingsCount,
+      stockAllocations,
+      sectorAllocations,
+      unrealizedPnLPct,
+      cashPct,
+      singlePositionLimit,
+      sectorExposureLimit,
+      minOptimalCash
+    );
+    const rawRiskScore = riskResult.rawRiskScore;
+    const riskHealthScore = riskResult.riskHealthScore;
+    const riskIndex = riskResult.riskIndex;
 
     // 8. Sub-Score: Sector Balance Score
-    let sectorBalanceScore = 100;
-    if (uniqueHoldingsCount > 0) {
-      sectorAllocations.forEach((sec) => {
-        if (sec.allocationPct > sectorExposureLimit) {
-          sectorBalanceScore -= 20;
-          if (sec.allocationPct > sectorExposureLimit + 15) {
-            sectorBalanceScore -= 15;
-          }
-        }
-      });
-
-      // Penalize missing standard sectors
-      const hasFinancials = sectorAllocations.some((s) => s.sector === "Financials");
-      const hasEnergy = sectorAllocations.some((s) => s.sector === "Energy & Infra");
-      const hasIT = sectorAllocations.some((s) => s.sector === "IT Services");
-      if (!hasFinancials) sectorBalanceScore -= 15;
-      if (!hasEnergy) sectorBalanceScore -= 10;
-      if (!hasIT) sectorBalanceScore -= 10;
-    }
-    sectorBalanceScore = Math.max(10, Math.min(100, sectorBalanceScore));
+    const sectorBalanceScore = this.calculateSectorExposure(
+      uniqueHoldingsCount,
+      sectorAllocations,
+      sectorExposureLimit
+    );
 
     // 9. Sub-Score: Cash Allocation Score
-    let cashAllocationScore = 100;
-    if (cashPct >= minOptimalCash && cashPct <= maxOptimalCash) {
-      cashAllocationScore = 100;
-    } else if (cashPct > maxOptimalCash) {
-      cashAllocationScore = Math.max(40, 100 - Math.round((cashPct - maxOptimalCash) * 0.8)); // Cash drag
-    } else {
-      cashAllocationScore = Math.max(30, 100 - Math.round((minOptimalCash - cashPct) * 4));   // Low liquidity risk
-    }
+    const cashAllocationScore = this.calculateCashAllocation(
+      cashPct,
+      minOptimalCash,
+      maxOptimalCash
+    );
 
     // 10. Sub-Score: Position Quality Score
-    let positionQualityScore = 100;
-    if (uniqueHoldingsCount > 0) {
-      const profitableCount = positions.filter((p) => p.quantity > 0 && p.current_price >= p.avg_entry_price).length;
-      positionQualityScore = Math.round(50 + 50 * (profitableCount / uniqueHoldingsCount));
-    }
+    const profitableCount = positions.filter((p) => p.quantity > 0 && p.current_price >= p.avg_entry_price).length;
+    const positionQualityScore = this.calculatePositionQuality(
+      uniqueHoldingsCount,
+      profitableCount
+    );
 
     // 11. Portfolio Health Score (Weighted average of sub-scores based on goal)
-    let healthScore = 100;
-    if (uniqueHoldingsCount > 0) {
-      if (goal === "Conservative") {
-        healthScore = Math.round(
-          diversificationScore * 0.30 +
-          riskHealthScore * 0.25 +
-          sectorBalanceScore * 0.20 +
-          cashAllocationScore * 0.15 +
-          positionQualityScore * 0.10
-        );
-      } else if (goal === "Aggressive") {
-        healthScore = Math.round(
-          diversificationScore * 0.15 +
-          riskHealthScore * 0.20 +
-          sectorBalanceScore * 0.15 +
-          cashAllocationScore * 0.20 +
-          positionQualityScore * 0.30
-        );
-      } else { // Balanced
-        healthScore = Math.round(
-          diversificationScore * 0.20 +
-          riskHealthScore * 0.30 +
-          sectorBalanceScore * 0.20 +
-          cashAllocationScore * 0.15 +
-          positionQualityScore * 0.15
-        );
-      }
-    }
-    healthScore = Math.max(20, Math.min(100, healthScore));
+    const healthScore = this.calculateHealth(
+      diversificationScore,
+      riskHealthScore,
+      sectorBalanceScore,
+      cashAllocationScore,
+      positionQualityScore,
+      goal
+    );
 
     // 12. Volatility Drag Estimation
     const volatilityDrag = Number((2.0 + Math.min(10.0, Math.abs(unrealizedPnLPct) * 0.15)).toFixed(2));
 
-    // 13. Risk Index classification
-    let riskIndex: "Low" | "Medium" | "High" = "Low";
-    if (rawRiskScore > 65) {
-      riskIndex = "High";
-    } else if (rawRiskScore > 35) {
-      riskIndex = "Medium";
-    }
+    // 13. Risk Index classification is already provided by calculateRisk()
 
     // 14. Dynamic AI Suggestions & Priorities
     const suggestions: AISuggestion[] = [];
